@@ -161,7 +161,7 @@ local ToggleBtn = Instance.new("TextButton")
 ToggleBtn.Size = UDim2.new(0.9, 0, 0, 40)
 ToggleBtn.Position = UDim2.new(0.05, 0, 0, 50)
 ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-ToggleBtn.Text = "Enabled"
+ToggleBtn.Text = "Enabled CursorLock"
 ToggleBtn.TextColor3 = Color3.new(1, 1, 1)
 ToggleBtn.TextSize = 14
 ToggleBtn.Font = Enum.Font.GothamSemibold
@@ -171,10 +171,10 @@ ToggleBtn.MouseButton1Click:Connect(function()
  Settings.Enabled = not Settings.Enabled
  if Settings.Enabled then
  ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
- ToggleBtn.Text = "Enabled"
+ ToggleBtn.Text = "Enabled CursorLock"
  else
  ToggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
- ToggleBtn.Text = "Disabled"
+ ToggleBtn.Text = "Disabled CursorLock"
  end
 end)
 

@@ -295,12 +295,12 @@ end)
 
 updateFOVSlider()
 
--- // FOV CIRCLE TOGGLE
+-- // CursorLock TOGGLE
 local FOVCircleToggle = Instance.new("TextButton")
 FOVCircleToggle.Size = UDim2.new(0.9, 0, 0, 40)
 FOVCircleToggle.Position = UDim2.new(0.05, 0, 0, 195)
 FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-FOVCircleToggle.Text = "FOV Circle: Visible"
+FOVCircleToggle.Text = "CursorLock Circle: Visible"
 FOVCircleToggle.TextColor3 = Color3.new(1, 1, 1)
 FOVCircleToggle.TextSize = 14
 FOVCircleToggle.Font = Enum.Font.GothamSemibold
@@ -1058,7 +1058,7 @@ local function SetAimlockTarget(plr)
 		Settings.ShowFOV = false
 		Settings.FOV = 9999
 		FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
-		FOVCircleToggle.Text = "FOV Circle: Hidden"
+		FOVCircleToggle.Text = "CursorLock Circle: Hidden"
 	else
 		NameAimlockLabel.Text = "Name Aimlock: none"
 		AimlockDropBtn.Text = "▼  Select Player..."

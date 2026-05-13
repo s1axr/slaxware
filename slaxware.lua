@@ -311,10 +311,10 @@ FOVCircleToggle.MouseButton1Click:Connect(function()
  Aiming.ShowFOV = Settings.ShowFOV
  if Settings.ShowFOV then
  FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
- FOVCircleToggle.Text = "FOV Circle: Visible"
+ FOVCircleToggle.Text = "CursorLock Circle: Visible"
  else
  FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
- FOVCircleToggle.Text = "FOV Circle: Hidden"
+ FOVCircleToggle.Text = "CursorLock Circle: Hidden"
  end
 end)
 

@@ -21,6 +21,39 @@ local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
+-- // ─────────────────────────────────────────────
+-- // AUTO-FIRE PROXIMITY PROMPTS
+-- // Fires any ProximityPrompt the moment the player
+-- // enters its activation radius — no key, no hold.
+-- // ─────────────────────────────────────────────
+
+local function hookAutoFire(prompt)
+	prompt.PromptShown:Connect(function()
+		task.wait(0.05) -- one frame buffer so the game registers proximity
+		pcall(function()
+			prompt.HoldDuration        = 0     -- instant, no hold needed
+			prompt.RequiresLineOfSight = false
+			prompt:InputHoldBegin()
+			task.wait(prompt.HoldDuration) -- 0 = fires instantly
+			prompt:InputHoldEnd()
+		end)
+	end)
+end
+
+-- Hook all prompts already in the workspace
+for _, desc in pairs(workspace:GetDescendants()) do
+	if desc:IsA("ProximityPrompt") then
+		hookAutoFire(desc)
+	end
+end
+
+-- Hook any prompts added later (e.g. when a new shop area loads)
+workspace.DescendantAdded:Connect(function(desc)
+	if desc:IsA("ProximityPrompt") then
+		hookAutoFire(desc)
+	end
+end)
+
 -- // Load Aiming Library
 local Aiming = loadstring(game:HttpGet("https://raw.githubusercontent.com/Ezucii/new/main/sourceeeeeeeeeeeeee.lua"))()
 
@@ -1314,8 +1347,12 @@ local CMD_LIST = {
 	{ cmd = "bind <toggle> <key>",   desc = "Bind a key to toggle a feature on/off" },
 	{ cmd = "unbind <toggle>",       desc = "Remove the bind from a toggle" },
 	{ cmd = "binds",                 desc = "List all your currently active binds" },
+	{ cmd = "get <item>",            desc = "Teleport to a gun in the world (or: get ammo)" },
 	{ cmd = "cmd",                   desc = "Open / close this command list" },
 	{ cmd = "help",                  desc = "Quick tip for the command bar" },
+	{ cmd = "", desc = "── Get: available items ───────────────" },
+	{ cmd = "uzi",                   desc = "→  Uzi | $150" },
+	{ cmd = "sawed",                 desc = "→  Sawed Off | $150" },
 	{ cmd = "", desc = "── Bindable toggles ──────────────────" },
 	{ cmd = "aimlock",               desc = "CursorLock + Name Aimlock (kill-switch)" },
 	{ cmd = "autoreset",             desc = "Auto reset character at ≤10 HP" },
@@ -1613,6 +1650,216 @@ local function ParseCommand(raw)
 		return
 	end
 
+	-- GET command: teleport to a gun model in the world
+	if cmd == "get" then
+		if #parts < 2 then
+			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+			CmdFeedback.Text = "Usage: get <item>  (e.g. get uzi)"
+			return
+		end
+
+		-- Map of item keyword → exact workspace model name
+		local ITEM_MAP = {
+			["uzi"]   = "Uzi | $150",
+			["sawed"] = "Sawed Off | $150",
+			["ammo"]  = "Buy Ammo | $25",
+		}
+
+		-- Items where multiple copies exist in the world; pick the closest one.
+		local FIND_CLOSEST = {
+			["Buy Ammo | $25"] = true,
+		}
+
+		local itemKey   = parts[2]:lower()
+		local modelName = ITEM_MAP[itemKey]
+		if not modelName then
+			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+			CmdFeedback.Text = "Unknown item: " .. itemKey .. "  (try: uzi)"
+			return
+		end
+
+		-- Search the whole workspace recursively.
+		-- For items in FIND_CLOSEST, collect every matching model and pick nearest.
+		local model
+		if FIND_CLOSEST[modelName] then
+			local hrpNow = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+			local bestDist = math.huge
+			for _, obj in pairs(workspace:GetDescendants()) do
+				if obj.Name == modelName then
+					local pos
+					if obj:IsA("Model") then
+						pos = obj.PrimaryPart and obj.PrimaryPart.Position
+							or (function()
+								for _, v in pairs(obj:GetDescendants()) do
+									if v:IsA("BasePart") then return v.Position end
+								end
+							end)()
+					elseif obj:IsA("BasePart") then
+						pos = obj.Position
+					end
+					if pos and hrpNow then
+						local d = (pos - hrpNow.Position).Magnitude
+						if d < bestDist then bestDist = d; model = obj end
+					end
+				end
+			end
+		else
+			model = workspace:FindFirstChild(modelName, true)
+		end
+		if not model then
+			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+			CmdFeedback.Text = modelName .. " not found in workspace"
+			return
+		end
+
+		-- Resolve the target position from the model
+		local targetPos
+		if model:IsA("Model") then
+			if model.PrimaryPart then
+				targetPos = model.PrimaryPart.Position
+			else
+				for _, v in pairs(model:GetDescendants()) do
+					if v:IsA("BasePart") then
+						targetPos = v.Position
+						break
+					end
+				end
+			end
+		elseif model:IsA("BasePart") then
+			targetPos = model.Position
+		end
+
+		if not targetPos then
+			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+			CmdFeedback.Text = "Couldn't find position for " .. modelName
+			return
+		end
+
+		-- Make sure the player has a character
+		local character = LocalPlayer.Character
+		local hrp = character and character:FindFirstChild("HumanoidRootPart")
+		if not hrp then
+			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+			CmdFeedback.Text = "No character — respawn and try again"
+			return
+		end
+
+		-- Bypassed teleport with auto-retry until the tool appears in inventory
+		local destCFrame = CFrame.new(targetPos + Vector3.new(0, 4, 0))
+
+		-- Strip "| $price" suffix to get the bare tool name used inside Backpack
+		-- e.g. "Uzi | $150" → "Uzi",  "Sawed Off | $150" → "Sawed Off"
+		local baseName = (modelName:match("^(.-)%s*|") or modelName):match("^%s*(.-)%s*$")
+
+		local function toolInInventory()
+			local containers = { LocalPlayer.Backpack }
+			if LocalPlayer.Character then
+				table.insert(containers, LocalPlayer.Character)
+			end
+			for _, container in pairs(containers) do
+				for _, item in pairs(container:GetChildren()) do
+					if item:IsA("Tool") then
+						local n = item.Name
+						if n == modelName or n == baseName
+							or n:lower():find(baseName:lower(), 1, true) then
+							return true
+						end
+					end
+				end
+			end
+			return false
+		end
+
+		CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
+		CmdFeedback.Text = "Going to " .. modelName .. "..."
+		Notify("Get", "📦  Going to " .. modelName)
+
+		task.spawn(function()
+			-- "get ammo" teleports once and stops; other items retry up to 20 times.
+			local MAX_ATTEMPTS = (itemKey == "ammo") and 1 or 20
+			local attempt = 0
+
+			while attempt < MAX_ATTEMPTS and not toolInInventory() do
+				attempt = attempt + 1
+
+				-- TP Walk toward the LOCKED model only — live-track its position each step
+				-- so we stay focused on the exact instance found at command time.
+				do
+					local STEP_SPEED  = 180   -- studs per second
+					local ARRIVE_DIST = 0.5   -- land directly ON the model
+					local MAX_STEPS   = 400   -- hard cap so it can't loop forever
+					local finalPos    = nil   -- track where we stop so we can face it
+
+					for _ = 1, MAX_STEPS do
+						-- Re-read the model's live world position each frame (tracks if it moves)
+						local livePos
+						if model:IsA("Model") then
+							livePos = model.PrimaryPart and model.PrimaryPart.Position
+							if not livePos then
+								for _, v in pairs(model:GetDescendants()) do
+									if v:IsA("BasePart") then livePos = v.Position; break end
+								end
+							end
+						elseif model:IsA("BasePart") then
+							livePos = model.Position
+						end
+						if not livePos then break end -- model disappeared
+						finalPos = livePos
+						-- No y-offset: walk straight onto the model's position
+						local diff = livePos - hrp.Position
+						if diff.Magnitude <= ARRIVE_DIST then break end
+						hrp.CFrame = hrp.CFrame + diff.Unit * math.min(STEP_SPEED * 0.016, diff.Magnitude)
+						task.wait() -- one frame, same as Heartbeat in TP Walk
+					end
+
+					-- Snap HRP to face the model so the game registers the interaction
+					-- regardless of where the camera was pointing beforehand.
+					if finalPos then
+						local lookDir = (finalPos - hrp.Position)
+						if lookDir.Magnitude > 0.01 then
+							hrp.CFrame = CFrame.lookAt(hrp.Position, finalPos)
+						end
+					end
+				end
+				task.wait(0.05)
+
+				-- Fire the ProximityPrompt on the LOCKED model only (all get commands).
+				-- Disable the prompt immediately after so the game can't re-fire it
+				-- or accidentally trigger any other nearby prompt on the same frame.
+				local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
+				if prompt then
+					pcall(function()
+						prompt.MaxActivationDistance = 999
+						prompt.HoldDuration          = 0
+						prompt.RequiresLineOfSight   = false
+						prompt:InputHoldBegin()
+						task.wait(prompt.HoldDuration)
+						prompt:InputHoldEnd()
+						prompt.Enabled = false  -- immediately lock it out so nothing nearby re-triggers
+					end)
+				end
+
+				task.wait(0.3)
+
+				if attempt > 1 and not toolInInventory() then
+					CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+					CmdFeedback.Text = "Retrying... (" .. attempt .. "/" .. MAX_ATTEMPTS .. ")"
+				end
+			end
+
+			if toolInInventory() then
+				CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
+				CmdFeedback.Text = "Grabbed " .. modelName .. "!"
+				Notify("Get", "✅  Grabbed " .. modelName)
+			else
+				CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+				CmdFeedback.Text = "Failed after " .. MAX_ATTEMPTS .. " attempts"
+				Notify("Get", "❌  Could not grab " .. modelName)
+			end
+		end)
+		return
+	end
+
 	-- HELP command (alias)
 	if cmd == "help" then
 		CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 255)
@@ -1642,8 +1889,8 @@ end)
 
 -- Listen for bind keystrokes globally (only when GUI not focused)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	-- Allow bind keys even if a button is processing, but not if the CmdBox itself is focused
-	if CmdBox:IsFocused() then return end
+	-- Block binds if ANY text box is focused (chat bar, cmd box, any input field)
+	if UserInputService:GetFocusedTextBox() then return end
 	for toggleName, keyEnum in pairs(Binds) do
 		if input.KeyCode == keyEnum then
 			FireToggle(toggleName)

@@ -1351,6 +1351,7 @@ local CMD_LIST = {
 	{ cmd = "get <item>",            desc = "Teleport to a gun in the world (or: get ammo)" },
 	{ cmd = "cmd",                   desc = "Open / close this command list" },
 	{ cmd = "help",                  desc = "Quick tip for the command bar" },
+	{ cmd = "chatenable",            desc = "Re-enable the Roblox chat window & input bar" },
 	{ cmd = "", desc = "── Get: available items ───────────────" },
 	{ cmd = "uzi",                   desc = "→  Uzi | $150" },
 	{ cmd = "sawed",                 desc = "→  Sawed Off | $150" },
@@ -1874,6 +1875,31 @@ local function ParseCommand(raw)
 		CmdPopup.Visible = not CmdPopup.Visible
 		CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 255)
 		CmdFeedback.Text = CmdPopup.Visible and "Command list opened" or "Command list closed"
+		return
+	end
+
+	-- CHATENABLE command: re-enable Roblox chat window and input bar
+	if cmd == "chatenable" then
+		local TCS = game:GetService("TextChatService")
+		-- Enable chat window
+		local CWC = TCS:FindFirstChildOfClass("ChatWindowConfiguration")
+		if CWC then
+			CWC.Enabled = true
+		end
+		-- Enable chat input bar
+		local CIBC = TCS:FindFirstChildOfClass("ChatInputBarConfiguration")
+		if CIBC then
+			CIBC.Enabled = true
+		end
+		-- Legacy chat fallback
+		local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
+		if isLegacy then
+			pcall(function()
+				game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Chat").Enabled = true
+			end)
+		end
+		CmdFeedback.TextColor3 = Color3.fromRGB(80, 255, 120)
+		CmdFeedback.Text = "Chat enabled!"
 		return
 	end
 

@@ -6,7 +6,7 @@
 (____/\____/\_/\_/(_/\_)(_/\_)\_/\_/(__\_)(____)
 
 -- made by grok ai btw lol cry idgaf
--- Features: auto-reset at 10hp, aimlock, esp, camlock
+-- Features: auto-reset at 10hp (toggle), aimlock, esp, camlock
 -- The Streets
 
 
@@ -31,7 +31,6 @@ Aiming.FOV = 60
 -- // Settings
 local Settings = {
  Enabled = true,
- Prediction = 0.125,
  FOV = 60,
  ShowFOV = true,
 }
@@ -73,7 +72,7 @@ __index = hookmetamethod(game, "__index", function(t, k)
  if targetPart then
  if k == "Hit" then
  -- Predict movement so bullets lead the target
- return targetPart.CFrame + (targetPart.Velocity * Settings.Prediction)
+ return targetPart.CFrame + (targetPart.Velocity * 0.125)
  else
  return targetPart
  end
@@ -84,7 +83,7 @@ __index = hookmetamethod(game, "__index", function(t, k)
  -- // Standard FOV aimlock (only runs when Name Aimlock is off)
  if t:IsA("Mouse") and (k == "Hit" or k == "Target") and CanSilentAim() and Settings.Enabled then
  local TargetPart = Aiming.SelectedPart
- local Predicted = TargetPart.CFrame + (TargetPart.Velocity * Settings.Prediction)
+ local Predicted = TargetPart.CFrame + (TargetPart.Velocity * 0.125)
 
  if k == "Hit" then
  return Predicted
@@ -178,63 +177,29 @@ ToggleBtn.MouseButton1Click:Connect(function()
  end
 end)
 
--- // PREDICTION SLIDER
-local PredLabel = Instance.new("TextLabel")
-PredLabel.Size = UDim2.new(0.9, 0, 0, 20)
-PredLabel.Position = UDim2.new(0.05, 0, 0, 100)
-PredLabel.BackgroundTransparency = 1
-PredLabel.Text = "Prediction: " .. string.format("%.3f", Settings.Prediction)
-PredLabel.TextColor3 = Color3.new(1, 1, 1)
-PredLabel.TextSize = 14
-PredLabel.Font = Enum.Font.Gotham
-PredLabel.Parent = Frame
+-- // AUTORESET TOGGLE
+local AUTO_RESET_ENABLED = true
 
-local PredSlider = Instance.new("Frame")
-PredSlider.Size = UDim2.new(0.9, 0, 0, 8)
-PredSlider.Position = UDim2.new(0.05, 0, 0, 125)
-PredSlider.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-PredSlider.BorderSizePixel = 0
-PredSlider.Parent = Frame
+local AutoResetToggle = Instance.new("TextButton")
+AutoResetToggle.Size = UDim2.new(0.9, 0, 0, 40)
+AutoResetToggle.Position = UDim2.new(0.05, 0, 0, 100)
+AutoResetToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+AutoResetToggle.Text = "Auto Reset (10 HP): Enabled"
+AutoResetToggle.TextColor3 = Color3.new(1, 1, 1)
+AutoResetToggle.TextSize = 14
+AutoResetToggle.Font = Enum.Font.GothamSemibold
+AutoResetToggle.Parent = Frame
 
-local PredKnob = Instance.new("Frame")
-PredKnob.Size = UDim2.new(0, 16, 0, 16)
-PredKnob.Position = UDim2.new(0.5, -8, 0.5, -8)
-PredKnob.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-PredKnob.BorderSizePixel = 0
-PredKnob.Parent = PredSlider
-
-local predDragging = false
-
-local function updatePredSlider()
- local percent = math.clamp((Settings.Prediction - 0.05) / 0.20, 0, 1)
- PredKnob.Position = UDim2.new(percent, -8, 0.5, -8)
- PredLabel.Text = "Prediction: " .. string.format("%.3f", Settings.Prediction)
-end
-
-PredSlider.InputBegan:Connect(function(input)
- if input.UserInputType == Enum.UserInputType.MouseButton1 then
- predDragging = true
+AutoResetToggle.MouseButton1Click:Connect(function()
+ AUTO_RESET_ENABLED = not AUTO_RESET_ENABLED
+ if AUTO_RESET_ENABLED then
+  AutoResetToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+  AutoResetToggle.Text = "Auto Reset (10 HP): Enabled"
+ else
+  AutoResetToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+  AutoResetToggle.Text = "Auto Reset (10 HP): Disabled"
  end
 end)
-
-UserInputService.InputEnded:Connect(function(input)
- if input.UserInputType == Enum.UserInputType.MouseButton1 then
- predDragging = false
- end
-end)
-
-RunService.RenderStepped:Connect(function()
- if predDragging then
- local mouseX = UserInputService:GetMouseLocation().X
- local sliderX = PredSlider.AbsolutePosition.X
- local sliderWidth = PredSlider.AbsoluteSize.X
- local percent = math.clamp((mouseX - sliderX) / sliderWidth, 0, 1)
- Settings.Prediction = 0.05 + (percent * 0.20)
- updatePredSlider()
- end
-end)
-
-updatePredSlider()
 
 -- // FOV SLIDER
 local FOVLabel = Instance.new("TextLabel")
@@ -935,11 +900,11 @@ end)
 print("✅ Silent Aim GUI Loaded (K = Toggle GUI)")
 
 -- // AUTO RESET ON LOW HEALTH (Strong Version)
-local AUTO_RESET_ENABLED = true
 local RESET_HEALTH_THRESHOLD = 10
 local lastResetTime = 0
 
 local function safeResetCharacter()
+ if not AUTO_RESET_ENABLED then return end
  local currentTime = tick()
  if currentTime - lastResetTime < 2 then return end -- 2 second cooldown
 

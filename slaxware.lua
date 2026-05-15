@@ -1220,6 +1220,17 @@ local function ResolveKeyCode(keyStr)
 end
 
 -- Toggle dispatcher: given a name, flip the toggle
+-- Helper: fire a Roblox toast notification
+local function Notify(title, text)
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("SendNotification", {
+			Title    = title,
+			Text     = text,
+			Duration = 3,
+		})
+	end)
+end
+
 local function FireToggle(name)
 	if name == "aimlock" then
 		-- True if either the main aimlock OR the name aimlock is currently active
@@ -1235,6 +1246,7 @@ local function FireToggle(name)
 				_lastNameAimlockTarget = NAME_AIMLOCK_TARGET
 			end
 			SetAimlockTarget(nil)
+			Notify("Aimlock", "🔴  Turned OFF")
 		else
 			-- ── Turn main aimlock back ON ─────────────────────────────────────
 			Aiming.Enabled = true
@@ -1246,33 +1258,40 @@ local function FireToggle(name)
 				SetAimlockTarget(_lastNameAimlockTarget)
 				_lastNameAimlockTarget = nil
 			end
+			Notify("Aimlock", "🟢  Turned ON")
 		end
 	elseif name == "autoreset" then
 		AUTO_RESET_ENABLED = not AUTO_RESET_ENABLED
 		AutoResetToggle.BackgroundColor3 = AUTO_RESET_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
 		AutoResetToggle.Text = "Auto Reset (10 HP): " .. (AUTO_RESET_ENABLED and "Enabled" or "Disabled")
+		Notify("Auto Reset", AUTO_RESET_ENABLED and "🟢  Turned ON" or "🔴  Turned OFF")
 	elseif name == "fly" then
 		FLY_ENABLED = not FLY_ENABLED
 		FlyToggle.BackgroundColor3 = FLY_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
 		FlyToggle.Text = "Fly: " .. (FLY_ENABLED and "Enabled" or "Disabled")
 		if FLY_ENABLED then StartFly() else StopFly() end
+		Notify("Fly", FLY_ENABLED and "🟢  Turned ON" or "🔴  Turned OFF")
 	elseif name == "noclip" then
 		NOCLIP_ENABLED = not NOCLIP_ENABLED
 		NoclipToggle.BackgroundColor3 = NOCLIP_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
 		NoclipToggle.Text = "Noclip: " .. (NOCLIP_ENABLED and "Enabled" or "Disabled")
+		Notify("Noclip", NOCLIP_ENABLED and "🟢  Turned ON" or "🔴  Turned OFF")
 	elseif name == "camlock" then
 		CAMLOCK_ENABLED = not CAMLOCK_ENABLED
 		CamlockToggle.BackgroundColor3 = CAMLOCK_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
 		CamlockToggle.Text = "Camlock: " .. (CAMLOCK_ENABLED and "Enabled" or "Disabled")
+		Notify("Camlock", CAMLOCK_ENABLED and "🟢  Turned ON" or "🔴  Turned OFF")
 	elseif name == "tpwalk" then
 		TPWALK_ENABLED = not TPWALK_ENABLED
 		TPWalkToggle.BackgroundColor3 = TPWALK_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
 		TPWalkToggle.Text = "TP Walk: " .. (TPWALK_ENABLED and "Enabled" or "Disabled")
+		Notify("TP Walk", TPWALK_ENABLED and "🟢  Turned ON" or "🔴  Turned OFF")
 	elseif name == "fovvisible" then
 		Settings.ShowFOV = not Settings.ShowFOV
 		Aiming.ShowFOV = Settings.ShowFOV
 		FOVCircleToggle.BackgroundColor3 = Settings.ShowFOV and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
 		FOVCircleToggle.Text = Settings.ShowFOV and "CursorLock Circle: Visible" or "CursorLock Circle: Hidden"
+		Notify("FOV Circle", Settings.ShowFOV and "🟢  Turned ON" or "🔴  Turned OFF")
 	end
 end
 

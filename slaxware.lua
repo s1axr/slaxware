@@ -101,7 +101,7 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
 local Frame = Instance.new("Frame")
-Frame.Size = UDim2.new(0, 280, 0, 770)
+Frame.Size = UDim2.new(0, 280, 0, 840)
 Frame.Position = UDim2.new(0.5, -140, 0.5, -285)
 Frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 Frame.BorderSizePixel = 0
@@ -1099,6 +1099,558 @@ end)
 Players.PlayerAdded:Connect(function()
 	if aimlockDropOpen then RefreshAimlockDropdown() end
 end)
+
+
+-- // ─────────────────────────────────────────────
+-- // COMMAND BAR
+-- // ─────────────────────────────────────────────
+
+-- Separator line above command bar
+local CmdSeparator = Instance.new("Frame")
+CmdSeparator.Size = UDim2.new(0.9, 0, 0, 1)
+CmdSeparator.Position = UDim2.new(0.05, 0, 0, 768)
+CmdSeparator.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+CmdSeparator.BorderSizePixel = 0
+CmdSeparator.Parent = Frame
+
+-- Label above the box
+local CmdLabel = Instance.new("TextLabel")
+CmdLabel.Size = UDim2.new(0.9, 0, 0, 16)
+CmdLabel.Position = UDim2.new(0.05, 0, 0, 773)
+CmdLabel.BackgroundTransparency = 1
+CmdLabel.Text = "Command Bar"
+CmdLabel.TextColor3 = Color3.fromRGB(160, 160, 160)
+CmdLabel.TextSize = 11
+CmdLabel.Font = Enum.Font.Gotham
+CmdLabel.TextXAlignment = Enum.TextXAlignment.Left
+CmdLabel.Parent = Frame
+
+-- The text input box
+local CmdBox = Instance.new("TextBox")
+CmdBox.Size = UDim2.new(0.9, 0, 0, 34)
+CmdBox.Position = UDim2.new(0.05, 0, 0, 792)
+CmdBox.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+CmdBox.BorderSizePixel = 1
+CmdBox.BorderColor3 = Color3.fromRGB(80, 80, 80)
+CmdBox.PlaceholderText = "e.g.  bind aimlock f"
+CmdBox.PlaceholderColor3 = Color3.fromRGB(90, 90, 90)
+CmdBox.Text = ""
+CmdBox.TextColor3 = Color3.new(1, 1, 1)
+CmdBox.TextSize = 13
+CmdBox.Font = Enum.Font.Gotham
+CmdBox.ClearTextOnFocus = false
+CmdBox.ZIndex = 5
+CmdBox.Parent = Frame
+
+do
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0, 8)
+	pad.PaddingRight = UDim.new(0, 8)
+	pad.Parent = CmdBox
+end
+
+-- Feedback label shown below the box
+local CmdFeedback = Instance.new("TextLabel")
+CmdFeedback.Size = UDim2.new(0.9, 0, 0, 14)
+CmdFeedback.Position = UDim2.new(0.05, 0, 0, 829)
+CmdFeedback.BackgroundTransparency = 1
+CmdFeedback.Text = ""
+CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
+CmdFeedback.TextSize = 11
+CmdFeedback.Font = Enum.Font.Gotham
+CmdFeedback.TextXAlignment = Enum.TextXAlignment.Left
+CmdFeedback.ZIndex = 5
+CmdFeedback.Parent = Frame
+
+-- Binds table: [toggleName] = KeyCode enum name string
+local Binds = {}
+
+-- Remembers the last Name Aimlock target so we can restore it when re-enabling
+local _lastNameAimlockTarget = nil
+
+-- Helper: map a simple key string to the Enum.KeyCode name
+local function ResolveKeyCode(keyStr)
+	-- Single letter A-Z
+	if #keyStr == 1 and keyStr:match("^%a$") then
+		return "KeyCode." .. keyStr:upper()
+	end
+	-- F1-F12
+	if keyStr:match("^[fF]%d%d?$") then
+		return "KeyCode." .. keyStr:upper()
+	end
+	-- Named keys mapping
+	local named = {
+		["space"]        = "KeyCode.Space",
+		["shift"]        = "KeyCode.LeftShift",
+		["lshift"]       = "KeyCode.LeftShift",
+		["rshift"]       = "KeyCode.RightShift",
+		["ctrl"]         = "KeyCode.LeftControl",
+		["lctrl"]        = "KeyCode.LeftControl",
+		["rctrl"]        = "KeyCode.RightControl",
+		["alt"]          = "KeyCode.LeftAlt",
+		["lalt"]         = "KeyCode.LeftAlt",
+		["ralt"]         = "KeyCode.RightAlt",
+		["tab"]          = "KeyCode.Tab",
+		["capslock"]     = "KeyCode.CapsLock",
+		["enter"]        = "KeyCode.Return",
+		["return"]       = "KeyCode.Return",
+		["backspace"]    = "KeyCode.Backspace",
+		["delete"]       = "KeyCode.Delete",
+		["insert"]       = "KeyCode.Insert",
+		["home"]         = "KeyCode.Home",
+		["end"]          = "KeyCode.End",
+		["pageup"]       = "KeyCode.PageUp",
+		["pagedown"]     = "KeyCode.PageDown",
+		["up"]           = "KeyCode.Up",
+		["down"]         = "KeyCode.Down",
+		["left"]         = "KeyCode.Left",
+		["right"]        = "KeyCode.Right",
+		["num0"]         = "KeyCode.Zero",
+		["num1"]         = "KeyCode.One",
+		["num2"]         = "KeyCode.Two",
+		["num3"]         = "KeyCode.Three",
+		["num4"]         = "KeyCode.Four",
+		["num5"]         = "KeyCode.Five",
+		["num6"]         = "KeyCode.Six",
+		["num7"]         = "KeyCode.Seven",
+		["num8"]         = "KeyCode.Eight",
+		["num9"]         = "KeyCode.Nine",
+	}
+	return named[keyStr:lower()]
+end
+
+-- Toggle dispatcher: given a name, flip the toggle
+local function FireToggle(name)
+	if name == "aimlock" then
+		-- True if either the main aimlock OR the name aimlock is currently active
+		local anyActive = Aiming.Enabled or NAME_AIMLOCK_ENABLED
+		if anyActive then
+			-- ── Turn EVERYTHING off ──────────────────────────────────────────
+			Aiming.Enabled = false
+			Settings.Enabled = false
+			ToggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+			ToggleBtn.Text = "Disabled CursorLock"
+			-- Save + clear the Name Aimlock target
+			if NAME_AIMLOCK_ENABLED and NAME_AIMLOCK_TARGET then
+				_lastNameAimlockTarget = NAME_AIMLOCK_TARGET
+			end
+			SetAimlockTarget(nil)
+		else
+			-- ── Turn main aimlock back ON ─────────────────────────────────────
+			Aiming.Enabled = true
+			Settings.Enabled = true
+			ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+			ToggleBtn.Text = "Enabled CursorLock"
+			-- Restore the last Name Aimlock target if one was saved
+			if _lastNameAimlockTarget then
+				SetAimlockTarget(_lastNameAimlockTarget)
+				_lastNameAimlockTarget = nil
+			end
+		end
+	elseif name == "autoreset" then
+		AUTO_RESET_ENABLED = not AUTO_RESET_ENABLED
+		AutoResetToggle.BackgroundColor3 = AUTO_RESET_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+		AutoResetToggle.Text = "Auto Reset (10 HP): " .. (AUTO_RESET_ENABLED and "Enabled" or "Disabled")
+	elseif name == "fly" then
+		FLY_ENABLED = not FLY_ENABLED
+		FlyToggle.BackgroundColor3 = FLY_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+		FlyToggle.Text = "Fly: " .. (FLY_ENABLED and "Enabled" or "Disabled")
+		if FLY_ENABLED then StartFly() else StopFly() end
+	elseif name == "noclip" then
+		NOCLIP_ENABLED = not NOCLIP_ENABLED
+		NoclipToggle.BackgroundColor3 = NOCLIP_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+		NoclipToggle.Text = "Noclip: " .. (NOCLIP_ENABLED and "Enabled" or "Disabled")
+	elseif name == "camlock" then
+		CAMLOCK_ENABLED = not CAMLOCK_ENABLED
+		CamlockToggle.BackgroundColor3 = CAMLOCK_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+		CamlockToggle.Text = "Camlock: " .. (CAMLOCK_ENABLED and "Enabled" or "Disabled")
+	elseif name == "tpwalk" then
+		TPWALK_ENABLED = not TPWALK_ENABLED
+		TPWalkToggle.BackgroundColor3 = TPWALK_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+		TPWalkToggle.Text = "TP Walk: " .. (TPWALK_ENABLED and "Enabled" or "Disabled")
+	elseif name == "fovvisible" then
+		Settings.ShowFOV = not Settings.ShowFOV
+		Aiming.ShowFOV = Settings.ShowFOV
+		FOVCircleToggle.BackgroundColor3 = Settings.ShowFOV and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+		FOVCircleToggle.Text = Settings.ShowFOV and "CursorLock Circle: Visible" or "CursorLock Circle: Hidden"
+	end
+end
+
+-- Valid toggle names for validation
+local VALID_TOGGLES = {
+	["aimlock"] = true,
+	["autoreset"] = true,
+	["fly"] = true,
+	["noclip"] = true,
+	["camlock"] = true,
+	["tpwalk"] = true,
+	["fovvisible"] = true,
+}
+
+-- // ─────────────────────────────────────────────
+-- // CMD POPUP WINDOW
+-- // ─────────────────────────────────────────────
+
+local CMD_LIST = {
+	{ cmd = "bind <toggle> <key>",   desc = "Bind a key to toggle a feature on/off" },
+	{ cmd = "unbind <toggle>",       desc = "Remove the bind from a toggle" },
+	{ cmd = "binds",                 desc = "List all your currently active binds" },
+	{ cmd = "cmd",                   desc = "Open / close this command list" },
+	{ cmd = "help",                  desc = "Quick tip for the command bar" },
+	{ cmd = "", desc = "── Bindable toggles ──────────────────" },
+	{ cmd = "aimlock",               desc = "CursorLock + Name Aimlock (kill-switch)" },
+	{ cmd = "autoreset",             desc = "Auto reset character at ≤10 HP" },
+	{ cmd = "fly",                   desc = "Fly mode" },
+	{ cmd = "noclip",                desc = "No-clip through walls" },
+	{ cmd = "camlock",               desc = "Lock camera onto selected player" },
+	{ cmd = "tpwalk",                desc = "Teleport-step walking" },
+	{ cmd = "fovvisible",            desc = "Show / hide the FOV circle" },
+}
+
+local ROW_H      = 36
+local POPUP_W    = 400
+local HEADER_H   = 38
+local FOOTER_H   = 36
+local POPUP_H    = HEADER_H + (#CMD_LIST * ROW_H) + FOOTER_H + 8
+
+-- Popup container (floating, draggable, starts hidden)
+local CmdPopup = Instance.new("Frame")
+CmdPopup.Name        = "CmdPopup"
+CmdPopup.Size        = UDim2.new(0, POPUP_W, 0, POPUP_H)
+CmdPopup.Position    = UDim2.new(0.5, -(POPUP_W / 2), 0.5, -(POPUP_H / 2) - 60)
+CmdPopup.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+CmdPopup.BorderSizePixel  = 0
+CmdPopup.Visible     = false
+CmdPopup.ZIndex      = 20
+CmdPopup.Active      = true
+CmdPopup.Draggable   = false
+CmdPopup.Parent      = ScreenGui
+
+do
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = CmdPopup
+end
+
+-- Drag logic for the popup
+do
+	local popupDragging  = false
+	local popupDragStart = nil
+	local popupStartPos  = nil
+
+	CmdPopup.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			popupDragging  = true
+			popupDragStart = input.Position
+			popupStartPos  = CmdPopup.Position
+		end
+	end)
+	CmdPopup.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			popupDragging = false
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if popupDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+			local delta = input.Position - popupDragStart
+			CmdPopup.Position = UDim2.new(
+				popupStartPos.X.Scale, popupStartPos.X.Offset + delta.X,
+				popupStartPos.Y.Scale, popupStartPos.Y.Offset + delta.Y
+			)
+		end
+	end)
+end
+
+-- Header bar
+local PopupHeader = Instance.new("Frame")
+PopupHeader.Size             = UDim2.new(1, 0, 0, HEADER_H)
+PopupHeader.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+PopupHeader.BorderSizePixel  = 0
+PopupHeader.ZIndex           = 21
+PopupHeader.Parent           = CmdPopup
+
+do
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = PopupHeader
+end
+
+-- Patch bottom corners of header (UICorner rounds all four)
+local headerPatch = Instance.new("Frame")
+headerPatch.Size             = UDim2.new(1, 0, 0, 8)
+headerPatch.Position         = UDim2.new(0, 0, 1, -8)
+headerPatch.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+headerPatch.BorderSizePixel  = 0
+headerPatch.ZIndex           = 21
+headerPatch.Parent           = PopupHeader
+
+local PopupTitle = Instance.new("TextLabel")
+PopupTitle.Size               = UDim2.new(1, -44, 1, 0)
+PopupTitle.Position           = UDim2.new(0, 12, 0, 0)
+PopupTitle.BackgroundTransparency = 1
+PopupTitle.Text               = "⌨  Command List"
+PopupTitle.TextColor3         = Color3.new(1, 1, 1)
+PopupTitle.TextSize           = 14
+PopupTitle.Font               = Enum.Font.GothamSemibold
+PopupTitle.TextXAlignment     = Enum.TextXAlignment.Left
+PopupTitle.ZIndex             = 22
+PopupTitle.Parent             = PopupHeader
+
+-- Close button (×)
+local PopupClose = Instance.new("TextButton")
+PopupClose.Size               = UDim2.new(0, 28, 0, 28)
+PopupClose.Position           = UDim2.new(1, -34, 0.5, -14)
+PopupClose.BackgroundColor3   = Color3.fromRGB(170, 0, 0)
+PopupClose.Text               = "✕"
+PopupClose.TextColor3         = Color3.new(1, 1, 1)
+PopupClose.TextSize           = 14
+PopupClose.Font               = Enum.Font.GothamSemibold
+PopupClose.BorderSizePixel    = 0
+PopupClose.ZIndex             = 22
+PopupClose.Parent             = PopupHeader
+
+do
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 4)
+	corner.Parent = PopupClose
+end
+
+PopupClose.MouseButton1Click:Connect(function()
+	CmdPopup.Visible = false
+end)
+
+-- Scrolling body
+local PopupScroll = Instance.new("ScrollingFrame")
+PopupScroll.Size                 = UDim2.new(1, 0, 1, -(HEADER_H + FOOTER_H + 4))
+PopupScroll.Position             = UDim2.new(0, 0, 0, HEADER_H + 2)
+PopupScroll.BackgroundTransparency = 1
+PopupScroll.BorderSizePixel      = 0
+PopupScroll.ScrollBarThickness   = 4
+PopupScroll.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
+PopupScroll.CanvasSize           = UDim2.new(0, 0, 0, #CMD_LIST * ROW_H)
+PopupScroll.ZIndex               = 21
+PopupScroll.Parent               = CmdPopup
+
+-- Populate rows
+for i, entry in ipairs(CMD_LIST) do
+	local isSeparator = entry.cmd == ""
+
+	local row = Instance.new("Frame")
+	row.Size             = UDim2.new(1, -8, 0, ROW_H - 2)
+	row.Position         = UDim2.new(0, 4, 0, (i - 1) * ROW_H + 2)
+	row.BackgroundColor3 = isSeparator
+		and Color3.fromRGB(28, 28, 28)
+		or (i % 2 == 0 and Color3.fromRGB(28, 28, 28) or Color3.fromRGB(33, 33, 33))
+	row.BorderSizePixel  = 0
+	row.ZIndex           = 22
+	row.Parent           = PopupScroll
+
+	do
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 4)
+		corner.Parent = row
+	end
+
+	if isSeparator then
+		-- Section divider label
+		local sepLabel = Instance.new("TextLabel")
+		sepLabel.Size               = UDim2.new(1, -10, 1, 0)
+		sepLabel.Position           = UDim2.new(0, 8, 0, 0)
+		sepLabel.BackgroundTransparency = 1
+		sepLabel.Text               = entry.desc
+		sepLabel.TextColor3         = Color3.fromRGB(120, 120, 120)
+		sepLabel.TextSize           = 11
+		sepLabel.Font               = Enum.Font.Gotham
+		sepLabel.TextXAlignment     = Enum.TextXAlignment.Left
+		sepLabel.ZIndex             = 23
+		sepLabel.Parent             = row
+	else
+		-- Command name (left, highlighted)
+		local cmdLabel = Instance.new("TextLabel")
+		cmdLabel.Size               = UDim2.new(0.42, -4, 1, 0)
+		cmdLabel.Position           = UDim2.new(0, 10, 0, 0)
+		cmdLabel.BackgroundTransparency = 1
+		cmdLabel.Text               = entry.cmd
+		cmdLabel.TextColor3         = Color3.fromRGB(100, 200, 255)
+		cmdLabel.TextSize           = 12
+		cmdLabel.Font               = Enum.Font.GothamSemibold
+		cmdLabel.TextXAlignment     = Enum.TextXAlignment.Left
+		cmdLabel.ZIndex             = 23
+		cmdLabel.Parent             = row
+
+		-- Description (right, muted)
+		local descLabel = Instance.new("TextLabel")
+		descLabel.Size              = UDim2.new(0.58, -10, 1, 0)
+		descLabel.Position          = UDim2.new(0.42, 4, 0, 0)
+		descLabel.BackgroundTransparency = 1
+		descLabel.Text              = entry.desc
+		descLabel.TextColor3        = Color3.fromRGB(190, 190, 190)
+		descLabel.TextSize          = 11
+		descLabel.Font              = Enum.Font.Gotham
+		descLabel.TextXAlignment    = Enum.TextXAlignment.Left
+		descLabel.ZIndex            = 23
+		descLabel.Parent            = row
+	end
+end
+
+-- Footer hint
+local PopupFooter = Instance.new("TextLabel")
+PopupFooter.Size               = UDim2.new(1, -16, 0, FOOTER_H)
+PopupFooter.Position           = UDim2.new(0, 8, 1, -FOOTER_H - 2)
+PopupFooter.BackgroundTransparency = 1
+PopupFooter.Text               = "Type a command in the bar below  •  drag this window to move it"
+PopupFooter.TextColor3         = Color3.fromRGB(90, 90, 90)
+PopupFooter.TextSize           = 10
+PopupFooter.Font               = Enum.Font.Gotham
+PopupFooter.TextXAlignment     = Enum.TextXAlignment.Center
+PopupFooter.ZIndex             = 21
+PopupFooter.Parent             = CmdPopup
+
+-- // ─────────────────────────────────────────────
+-- Command parser
+local function ParseCommand(raw)
+	local parts = {}
+	for word in raw:gmatch("%S+") do
+		table.insert(parts, word:lower())
+	end
+	if #parts == 0 then return end
+
+	local cmd = parts[1]
+
+	-- BIND command: bind <toggle> <key>
+	if cmd == "bind" then
+		if #parts < 3 then
+			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+			CmdFeedback.Text = "Usage: bind <toggle> <key>"
+			return
+		end
+		local toggleName = parts[2]
+		local keyName    = parts[3]
+
+		if not VALID_TOGGLES[toggleName] then
+			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+			CmdFeedback.Text = "Unknown toggle: " .. toggleName
+			return
+		end
+
+		local keyCodePath = ResolveKeyCode(keyName)
+		if not keyCodePath then
+			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+			CmdFeedback.Text = "Unknown key: " .. keyName
+			return
+		end
+
+		-- e.g. keyCodePath = "KeyCode.F"  → split to get the actual Enum value
+		local enumName = keyCodePath:match("KeyCode%.(.+)")
+		local ok, keyEnum = pcall(function()
+			return Enum.KeyCode[enumName]
+		end)
+		if not ok or not keyEnum then
+			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+			CmdFeedback.Text = "Invalid key: " .. keyName
+			return
+		end
+
+		-- Unbind previous if same toggle was already bound to another key
+		Binds[toggleName] = keyEnum
+
+		CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
+		CmdFeedback.Text = "Bound " .. toggleName .. " → " .. keyName:upper()
+		return
+	end
+
+	-- UNBIND command: unbind <toggle>
+	if cmd == "unbind" then
+		if #parts < 2 then
+			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+			CmdFeedback.Text = "Usage: unbind <toggle>"
+			return
+		end
+		local toggleName = parts[2]
+		if not VALID_TOGGLES[toggleName] then
+			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+			CmdFeedback.Text = "Unknown toggle: " .. toggleName
+			return
+		end
+		if Binds[toggleName] then
+			Binds[toggleName] = nil
+			CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+			CmdFeedback.Text = "Unbound " .. toggleName
+		else
+			CmdFeedback.TextColor3 = Color3.fromRGB(160, 160, 160)
+			CmdFeedback.Text = toggleName .. " has no bind"
+		end
+		return
+	end
+
+	-- BINDS command: list all current binds
+	if cmd == "binds" then
+		local out = ""
+		for name, key in pairs(Binds) do
+			out = out .. name .. "=" .. tostring(key).." "
+		end
+		CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 255)
+		CmdFeedback.Text = out ~= "" and ("Binds: " .. out) or "No binds set"
+		return
+	end
+
+	-- HELP command (alias)
+	if cmd == "help" then
+		CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 255)
+		CmdFeedback.Text = "type 'cmd' to open the command list"
+		return
+	end
+
+	-- CMD command: open the command list popup
+	if cmd == "cmd" then
+		CmdPopup.Visible = not CmdPopup.Visible
+		CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 255)
+		CmdFeedback.Text = CmdPopup.Visible and "Command list opened" or "Command list closed"
+		return
+	end
+
+	CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+	CmdFeedback.Text = "Unknown command: " .. cmd .. "  (try: cmd)"
+end
+
+-- Submit on Enter
+CmdBox.FocusLost:Connect(function(enterPressed)
+	if enterPressed then
+		ParseCommand(CmdBox.Text)
+		CmdBox.Text = ""
+	end
+end)
+
+-- Listen for bind keystrokes globally (only when GUI not focused)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	-- Allow bind keys even if a button is processing, but not if the CmdBox itself is focused
+	if CmdBox:IsFocused() then return end
+	for toggleName, keyEnum in pairs(Binds) do
+		if input.KeyCode == keyEnum then
+			FireToggle(toggleName)
+		end
+	end
+end)
+
+-- Clear feedback after 4 seconds automatically
+local lastFeedbackTime = 0
+task.spawn(function()
+	while true do
+		task.wait(1)
+		if CmdFeedback.Text ~= "" then
+			lastFeedbackTime = lastFeedbackTime + 1
+			if lastFeedbackTime >= 4 then
+				CmdFeedback.Text = ""
+				lastFeedbackTime = 0
+			end
+		else
+			lastFeedbackTime = 0
+		end
+	end
+end)
+
+print("✅ Command Bar Loaded  |  try: bind aimlock f")
+
 
 -- // ESP - Full Body Highlight + Classic Nametags
 _G.FriendColor = Color3.fromRGB(0, 0, 255)

@@ -1337,6 +1337,7 @@ local VALID_TOGGLES = {
 	["camlock"] = true,
 	["tpwalk"] = true,
 	["fovvisible"] = true,
+	["keylock"] = true,   -- mouse-target aimlock setter
 }
 
 -- // ─────────────────────────────────────────────
@@ -1361,6 +1362,7 @@ local CMD_LIST = {
 	{ cmd = "camlock",               desc = "Lock camera onto selected player" },
 	{ cmd = "tpwalk",                desc = "Teleport-step walking" },
 	{ cmd = "fovvisible",            desc = "Show / hide the FOV circle" },
+	{ cmd = "keylock",               desc = "Hover cursor on a player + press bind to lock aimlock on them" },
 }
 
 local ROW_H      = 36
@@ -1893,7 +1895,51 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if UserInputService:GetFocusedTextBox() then return end
 	for toggleName, keyEnum in pairs(Binds) do
 		if input.KeyCode == keyEnum then
-			FireToggle(toggleName)
+			if toggleName == "keylock" then
+				-- Keylock: project every player's HumanoidRootPart to screen space
+				-- and pick whoever is closest to the mouse cursor.
+				-- No raycast = no distance limit, works through walls, any range.
+				local camera      = workspace.CurrentCamera
+				local mousePos    = UserInputService:GetMouseLocation()
+				local closestPlr  = nil
+				local closestDist = math.huge
+				for _, plr in pairs(Players:GetPlayers()) do
+					if plr ~= LocalPlayer and plr.Character then
+						local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+						if hrp then
+							local screenPos, onScreen = camera:WorldToScreenPoint(hrp.Position)
+							if onScreen then
+								local d = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+								if d < closestDist then
+									closestDist = d
+									closestPlr  = plr
+								end
+							end
+						end
+					end
+				end
+				if closestPlr then
+					-- Atomic swap: never set ENABLED = false so aimlock
+					-- stays hot the whole time while switching targets.
+					NAME_AIMLOCK_TARGET  = closestPlr
+					NAME_AIMLOCK_ENABLED = true
+					-- Sync UI so dropdown reflects the new target
+					NameAimlockLabel.Text         = "Name Aimlock: " .. closestPlr.Name
+					AimlockDropBtn.Text           = "▼  " .. closestPlr.Name
+					AimlockDropBtn.TextColor3     = Color3.fromRGB(255, 200, 50)
+					NameAimlockStatus.Text        = "Status: LOCKED"
+					NameAimlockStatus.TextColor3  = Color3.fromRGB(0, 200, 80)
+					Aiming.ShowFOV   = false
+					Aiming.FOV       = 9999
+					Settings.ShowFOV = false
+					Settings.FOV     = 9999
+					FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+					FOVCircleToggle.Text             = "CursorLock Circle: Hidden"
+					Notify("Keylock", "[LOCKED] " .. closestPlr.Name)
+				end
+			else
+				FireToggle(toggleName)
+			end
 		end
 	end
 end)

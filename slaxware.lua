@@ -1,8 +1,8 @@
 --[[
 
  ____ __ __ _ _ _ _ __ ____ ____
-/ ___)( ) / _ ( \/ )/ )(  / _ ( _ \( __)
-\___ \/ (_/\/  ) (  / //  ) / ) _)
+/ ___)( ) / _\ ( \/ )/ )( \ / _\ ( _ \( __)
+\___ \/ (_/\/ \ ) ( \ /\ // \ ) / ) _)
 (____/\____/\_/\_/(_/\_)(_/\_)\_/\_/(__\_)(____)
 
 -- made by grok ai btw lol cry idgaf
@@ -879,6 +879,7 @@ end)
 
 -- // NOCLIP TOGGLE
 local NOCLIP_ENABLED = false
+local RAINBOWHATS_ENABLED = false
 
 local NoclipToggle = Instance.new("TextButton")
 NoclipToggle.Size = UDim2.new(0.9, 0, 0, 40)
@@ -1197,6 +1198,18 @@ local Binds = {}
 
 -- Remembers the last Name Aimlock target so we can restore it when re-enabling
 local _lastNameAimlockTarget = nil
+ local ITEM_ESP_ACTIVE=false; local ITEM_ESP_OBJECTS={}
+ local GET_ITEMS={
+  ["money"]  ={label="💰 Money",  mesh="rbxassetid://511726060",texture="rbxassetid://511726139"},
+  ["grenade"]={label="💣 Grenade",mesh="rbxassetid://436966955",texture="rbxassetid://436966973"},
+  ["flash"]  ={label="💥 Flash",  mesh="rbxassetid://454819719",texture="rbxassetid://454819722"},
+  ["golf"]   ={label="⚳ Golf",  mesh="rbxassetid://441573384",texture="rbxassetid://441573394"},
+  ["ar15"]   ={label="🔫 AR15",   mesh="rbxassetid://137762422011047"},
+  ["molotov"]={label="🔥 Molotov",mesh="rbxassetid://454823030",texture="rbxassetid://91135823000526"},
+  ["brick"]  ={label="🧱 Brick",  texture="rbxassetid://8236335288"},
+  ["usas"]   ={label="🔫 USAS-12",texture="rbxassetid://97657374427072"},
+ }
+
 
 -- Helper: map a simple key string to the Enum.KeyCode name
 local function ResolveKeyCode(keyStr)
@@ -1342,34 +1355,53 @@ local VALID_TOGGLES = {
 -- // ─────────────────────────────────────────────
 
 local CMD_LIST = {
- { cmd = "bind <command> <key>", desc = "Bind a key to toggle a feature on/off" },
+ { cmd = "bind ", desc = "Bind a key to toggle a feature on/off" },
  { cmd = "unbind ", desc = "Remove the bind from a toggle" },
  { cmd = "binds", desc = "List all your currently active binds" },
+ { cmd = "get ", desc = "Teleport to item in world" },
  { cmd = "cmd", desc = "Open / close this command list" },
  { cmd = "help", desc = "Quick tip for the command bar" },
  { cmd = "chatenable", desc = "Re-enable the Roblox chat window & input bar" },
+ { cmd = "", desc = "── Get: available items ───────────────" },
+ { cmd = "money",   desc = "→ Scan workspace for money"     },
+ { cmd = "grenade", desc = "→ Scan workspace for grenades"  },
+ { cmd = "flash",   desc = "→ Scan workspace for flashbangs"},
+ { cmd = "golf",    desc = "→ Scan workspace for golf ball" },
+ { cmd = "ar15",    desc = "→ Scan workspace for AR15"      },
+ { cmd = "molotov", desc = "→ Scan workspace for molotovs" },
+ { cmd = "brick",   desc = "→ Scan workspace for brick"     },
+ { cmd = "usas",    desc = "→ Scan workspace for USAS-12"  },
+ { cmd = "", desc = "── Item ESP ────────────────────────────────" },
+ { cmd = "itemesp",  desc = "ESP all scannable items in world" },
+ { cmd = "unitemesp",desc = "Remove item ESP"                  },
  { cmd = "", desc = "── Bindable toggles ──────────────────" },
  { cmd = "aimlock", desc = "CursorLock + Name Aimlock (kill-switch)" },
  { cmd = "autoreset", desc = "Auto reset character at ≤10 HP" },
  { cmd = "fly", desc = "Fly mode" },
  { cmd = "noclip", desc = "No-clip through walls" },
+ { cmd = "rainbowhats", desc = "Rainbow-cycle all hat colors in phone GUI (toggle)" },
+ { cmd = "rejoin", desc = "Rejoin the current server" },
  { cmd = "camlock", desc = "Lock camera onto selected player" },
  { cmd = "tpwalk", desc = "Teleport-step walking" },
  { cmd = "fovvisible", desc = "Show / hide the FOV circle" },
  { cmd = "keylock", desc = "Hover cursor on a player + press bind to lock aimlock on them" },
 }
 
-local ROW_H = 36
-local POPUP_W = 400
+local ROW_H = 34
+local POPUP_W = 420
 local HEADER_H = 38
 local FOOTER_H = 36
-local POPUP_H = HEADER_H + (#CMD_LIST * ROW_H) + FOOTER_H + 8
+local CONTENT_H = #CMD_LIST * ROW_H  -- full canvas height
+-- Clamp popup height to 80% of screen height so it always fits
+local screenH = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.Y or 600
+local MAX_POPUP_H = math.floor(screenH * 0.80)
+local POPUP_H = math.min(HEADER_H + CONTENT_H + FOOTER_H + 8, MAX_POPUP_H)
 
 -- Popup container (floating, draggable, starts hidden)
 local CmdPopup = Instance.new("Frame")
 CmdPopup.Name = "CmdPopup"
 CmdPopup.Size = UDim2.new(0, POPUP_W, 0, POPUP_H)
-CmdPopup.Position = UDim2.new(0.5, -(POPUP_W / 2), 0.5, -(POPUP_H / 2) - 60)
+CmdPopup.Position = UDim2.new(0.5, -(POPUP_W / 2), 0.5, -(POPUP_H / 2))
 CmdPopup.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 CmdPopup.BorderSizePixel = 0
 CmdPopup.Visible = false
@@ -1477,9 +1509,13 @@ PopupScroll.Size = UDim2.new(1, 0, 1, -(HEADER_H + FOOTER_H + 4))
 PopupScroll.Position = UDim2.new(0, 0, 0, HEADER_H + 2)
 PopupScroll.BackgroundTransparency = 1
 PopupScroll.BorderSizePixel = 0
-PopupScroll.ScrollBarThickness = 4
-PopupScroll.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
-PopupScroll.CanvasSize = UDim2.new(0, 0, 0, #CMD_LIST * ROW_H)
+PopupScroll.ScrollBarThickness = 6
+PopupScroll.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 100)
+PopupScroll.CanvasSize = UDim2.new(0, 0, 0, CONTENT_H)
+PopupScroll.ScrollingEnabled = true
+PopupScroll.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
+PopupScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+PopupScroll.AutomaticCanvasSize = Enum.AutomaticSize.None
 PopupScroll.ZIndex = 21
 PopupScroll.Parent = CmdPopup
 
@@ -1646,7 +1682,334 @@ local function ParseCommand(raw)
  return
  end
 
+ -- GET command: teleport to a gun model in the world
+ if cmd == "get" then
+ if #parts < 2 then
+ CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+ CmdFeedback.Text = "Usage: get  (e.g. get money)"
+ return
+ end
 
+ -- Map of item keyword → exact workspace model name
+ local ITEM_MAP = {
+ ["ammo"] = "Buy Ammo | $25",
+ }
+
+ -- Items where multiple copies exist in the world; pick the closest one.
+ local FIND_CLOSEST = {
+ ["Buy Ammo | $25"] = true,
+ }
+
+ local itemKey=parts[2]:lower()
+ local iDef=GET_ITEMS[itemKey]
+ if iDef then
+  local function nId(s) return tostring(s):lower():gsub("%s+","") end
+  local function mI(o)
+   local c=o.ClassName;local m=iDef.mesh and nId(iDef.mesh);local t=iDef.texture and nId(iDef.texture)
+   if c=="SpecialMesh" or c=="FileMesh" then return (m and nId(o.MeshId)==m) or (t and nId(o.TextureId)==t)
+   elseif c=="MeshPart" then return (m and nId(o.MeshId)==m) or (t and nId(o.TextureId)==t)
+   elseif c=="Texture" or c=="Decal" then return t and nId(o.Texture)==t
+   end;return false
+  end
+  CmdFeedback.TextColor3=Color3.fromRGB(255,215,0)
+  CmdFeedback.Text="🔍 Scanning for "..itemKey.."..."
+  Notify("Get","🔍 "..itemKey)
+  task.spawn(function()
+   local fd,sn={},{}
+   for i,o in ipairs(workspace:GetDescendants()) do
+    if i%200==0 then task.wait() end
+    local ok,h=pcall(mI,o)
+    if ok and h then
+     local a=o.Parent
+     while a and a~=workspace do if a:IsA("Model") then break end;a=a.Parent end
+     local tg=(a and a~=workspace and a:IsA("Model")) and a or (o:IsA("BasePart") and o) or (o.Parent and o.Parent:IsA("BasePart") and o.Parent)
+     if tg and not sn[tg] then sn[tg]=true;table.insert(fd,tg) end
+    end
+   end
+   if #fd==0 then CmdFeedback.TextColor3=Color3.fromRGB(255,80,80);CmdFeedback.Text="No "..itemKey.." found";Notify("Get","❌ Not found");return end
+   local hn=LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart");local cl=fd[1]
+   if hn and #fd>1 then local b=math.huge
+    for _,m in ipairs(fd) do local p
+     if m:IsA("Model") then p=m.PrimaryPart and m.PrimaryPart.Position;if not p then for _,v in pairs(m:GetDescendants()) do if v:IsA("BasePart") then p=v.Position;break end end end
+     elseif m:IsA("BasePart") then p=m.Position end
+     if p then local d=(p-hn.Position).Magnitude;if d<b then b=d;cl=m end end
+    end
+   end
+   local tp;if cl:IsA("Model") then tp=cl.PrimaryPart and cl.PrimaryPart.Position
+    if not tp then for _,v in pairs(cl:GetDescendants()) do if v:IsA("BasePart") then tp=v.Position;break end end end
+   elseif cl:IsA("BasePart") then tp=cl.Position end
+   if not tp then CmdFeedback.TextColor3=Color3.fromRGB(255,80,80);CmdFeedback.Text="No position";return end
+   if tp.Y < -50 then CmdFeedback.TextColor3=Color3.fromRGB(255,140,0);CmdFeedback.Text="⚠️ "..itemKey.." appears to be in the void — skipped";return end
+   local ch=LocalPlayer.Character;local hr=ch and ch:FindFirstChild("HumanoidRootPart")
+   if not hr then CmdFeedback.TextColor3=Color3.fromRGB(255,80,80);CmdFeedback.Text="No character";return end
+   CmdFeedback.TextColor3=Color3.fromRGB(255,215,0);CmdFeedback.Text="🚶 Walking to "..itemKey.." ("..#fd.." found)..."
+   Notify("Get","🚶 "..itemKey.." x"..#fd)
+   -- Enable noclip during teleport so walls don't block movement
+   local _wasNoclip = NOCLIP_ENABLED
+   if not NOCLIP_ENABLED then
+    NOCLIP_ENABLED = true
+    NoclipToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+    NoclipToggle.Text = "Noclip: Enabled"
+   end
+   local S,D,M,fp=170,1.5,600,nil
+   for _ = 1,M do
+    if not cl or not cl.Parent then break end
+    local lp;if cl:IsA("Model") then lp=cl.PrimaryPart and cl.PrimaryPart.Position
+     if not lp then for _,v in pairs(cl:GetDescendants()) do if v:IsA("BasePart") then lp=v.Position;break end end end
+    elseif cl:IsA("BasePart") then lp=cl.Position end
+    if not lp then break end;fp=lp
+    local d=lp-hr.Position;if d.Magnitude<=D then break end
+    -- Void check: abort if character is falling into the void
+    if hr.Position.Y < -120 then
+     CmdFeedback.TextColor3=Color3.fromRGB(255,80,80);CmdFeedback.Text="⚠️ Void detected — aborted!"
+     Notify("Get","⚠️ Void abort");break
+    end
+    hr.CFrame=hr.CFrame+d.Unit*math.min(S*0.016,d.Magnitude);task.wait()
+   end
+   if fp then local ld=fp-hr.Position;if ld.Magnitude>0.01 then hr.CFrame=CFrame.lookAt(hr.Position,fp) end end
+   -- Restore noclip to its previous state after arrival
+   if not _wasNoclip then
+    NOCLIP_ENABLED = false
+    NoclipToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+    NoclipToggle.Text = "Noclip: Disabled"
+   end
+   CmdFeedback.TextColor3=Color3.fromRGB(0,220,80);CmdFeedback.Text="✅ Arrived at "..itemKey.."!"
+   Notify("Get","✅ "..itemKey)
+  end);return
+ end
+
+  local modelName = ITEM_MAP[itemKey]
+ if not modelName then
+ CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+ CmdFeedback.Text = "Unknown item: " .. itemKey .. " (try: uzi)"
+ return
+ end
+
+ -- Search the whole workspace recursively.
+ -- For items in FIND_CLOSEST, collect every matching model and pick nearest.
+ local model
+ if FIND_CLOSEST[modelName] then
+ local hrpNow = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+ local bestDist = math.huge
+ for _, obj in pairs(workspace:GetDescendants()) do
+ if obj.Name == modelName then
+ local pos
+ if obj:IsA("Model") then
+ pos = obj.PrimaryPart and obj.PrimaryPart.Position
+ or (function()
+ for _, v in pairs(obj:GetDescendants()) do
+ if v:IsA("BasePart") then return v.Position end
+ end
+ end)()
+ elseif obj:IsA("BasePart") then
+ pos = obj.Position
+ end
+ if pos and hrpNow then
+ local d = (pos - hrpNow.Position).Magnitude
+ if d < bestDist then bestDist = d; model = obj end
+ end
+ end
+ end
+ else
+ model = workspace:FindFirstChild(modelName, true)
+ end
+ if not model then
+ CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+ CmdFeedback.Text = modelName .. " not found in workspace"
+ return
+ end
+
+ -- Resolve the target position from the model
+ local targetPos
+ if model:IsA("Model") then
+ if model.PrimaryPart then
+ targetPos = model.PrimaryPart.Position
+ else
+ for _, v in pairs(model:GetDescendants()) do
+ if v:IsA("BasePart") then
+ targetPos = v.Position
+ break
+ end
+ end
+ end
+ elseif model:IsA("BasePart") then
+ targetPos = model.Position
+ end
+
+ if not targetPos then
+ CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+ CmdFeedback.Text = "Couldn't find position for " .. modelName
+ return
+ end
+
+ -- Make sure the player has a character
+ local character = LocalPlayer.Character
+ local hrp = character and character:FindFirstChild("HumanoidRootPart")
+ if not hrp then
+ CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+ CmdFeedback.Text = "No character — respawn and try again"
+ return
+ end
+
+ -- Bypassed teleport with auto-retry until the tool appears in inventory
+ local destCFrame = CFrame.new(targetPos + Vector3.new(0, 4, 0))
+
+ -- Strip "| $price" suffix to get the bare tool name used inside Backpack
+ -- e.g. "Uzi | $150" → "Uzi", "Sawed Off | $150" → "Sawed Off"
+ local baseName = (modelName:match("^(.-)%s*|") or modelName):match("^%s*(.-)%s*$")
+
+ local function toolInInventory()
+ local containers = { LocalPlayer.Backpack }
+ if LocalPlayer.Character then
+ table.insert(containers, LocalPlayer.Character)
+ end
+ for _, container in pairs(containers) do
+ for _, item in pairs(container:GetChildren()) do
+ if item:IsA("Tool") then
+ local n = item.Name
+ if n == modelName or n == baseName
+ or n:lower():find(baseName:lower(), 1, true) then
+ return true
+ end
+ end
+ end
+ end
+ return false
+ end
+
+ CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
+ CmdFeedback.Text = "Going to " .. modelName .. "..."
+ Notify("Get", "📦 Going to " .. modelName)
+
+ task.spawn(function()
+ -- "get ammo" teleports once and stops; other items retry up to 20 times.
+ local MAX_ATTEMPTS = (itemKey == "ammo") and 1 or 20
+ local attempt = 0
+
+ while attempt < MAX_ATTEMPTS and not toolInInventory() do
+ attempt = attempt + 1
+
+ -- TP Walk toward the LOCKED model only — live-track its position each step
+ -- so we stay focused on the exact instance found at command time.
+ do
+ local STEP_SPEED = 180 -- studs per second
+ local ARRIVE_DIST = 0.5 -- land directly ON the model
+ local MAX_STEPS = 400 -- hard cap so it can't loop forever
+ local finalPos = nil -- track where we stop so we can face it
+
+ for _ = 1, MAX_STEPS do
+ -- Re-read the model's live world position each frame (tracks if it moves)
+ local livePos
+ if model:IsA("Model") then
+ livePos = model.PrimaryPart and model.PrimaryPart.Position
+ if not livePos then
+ for _, v in pairs(model:GetDescendants()) do
+ if v:IsA("BasePart") then livePos = v.Position; break end
+ end
+ end
+ elseif model:IsA("BasePart") then
+ livePos = model.Position
+ end
+ if not livePos then break end -- model disappeared
+ finalPos = livePos
+ -- No y-offset: walk straight onto the model's position
+ local diff = livePos - hrp.Position
+ if diff.Magnitude <= ARRIVE_DIST then break end
+ hrp.CFrame = hrp.CFrame + diff.Unit * math.min(STEP_SPEED * 0.016, diff.Magnitude)
+ task.wait() -- one frame, same as Heartbeat in TP Walk
+ end
+
+ -- Snap HRP to face the model so the game registers the interaction
+ -- regardless of where the camera was pointing beforehand.
+ if finalPos then
+ local lookDir = (finalPos - hrp.Position)
+ if lookDir.Magnitude > 0.01 then
+ hrp.CFrame = CFrame.lookAt(hrp.Position, finalPos)
+ end
+ end
+ end
+ task.wait(0.05)
+
+ -- Fire the ProximityPrompt on the LOCKED model only (all get commands).
+ -- Disable the prompt immediately after so the game can't re-fire it
+ -- or accidentally trigger any other nearby prompt on the same frame.
+ local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
+ if prompt then
+ pcall(function()
+ prompt.MaxActivationDistance = 999
+ prompt.HoldDuration = 0
+ prompt.RequiresLineOfSight = false
+ prompt:InputHoldBegin()
+ task.wait(prompt.HoldDuration)
+ prompt:InputHoldEnd()
+ prompt.Enabled = false -- immediately lock it out so nothing nearby re-triggers
+ end)
+ end
+
+ task.wait(0.3)
+
+ if attempt > 1 and not toolInInventory() then
+ CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+ CmdFeedback.Text = "Retrying... (" .. attempt .. "/" .. MAX_ATTEMPTS .. ")"
+ end
+ end
+
+ if toolInInventory() then
+ CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
+ CmdFeedback.Text = "Grabbed " .. modelName .. "!"
+ Notify("Get", "✅ Grabbed " .. modelName)
+ else
+ CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+ CmdFeedback.Text = "Failed after " .. MAX_ATTEMPTS .. " attempts"
+ Notify("Get", "❌ Could not grab " .. modelName)
+ end
+ end)
+ return
+ end
+
+ if cmd=="itemesp" then
+  if ITEM_ESP_ACTIVE then CmdFeedback.TextColor3=Color3.fromRGB(255,180,50);CmdFeedback.Text="Already active — use unitemesp";return end
+  CmdFeedback.TextColor3=Color3.fromRGB(100,200,255);CmdFeedback.Text="🔍 Scanning...";Notify("ItemESP","🔍 Building ESP...")
+  task.spawn(function()
+   local function nId(s) return tostring(s):lower():gsub("%s+","") end
+   local CLR={money=Color3.fromRGB(255,215,0),grenade=Color3.fromRGB(80,200,80),flash=Color3.fromRGB(255,255,120),golf=Color3.fromRGB(255,150,50),ar15=Color3.fromRGB(200,80,80),molotov=Color3.fromRGB(255,100,30),brick=Color3.fromRGB(180,120,60),usas=Color3.fromRGB(150,100,255)}
+   local function addHL(tg,lbl,clr)
+    local hl=Instance.new("Highlight");hl.Name="SlaxrItemESP";hl.FillColor=clr;hl.OutlineColor=clr;hl.FillTransparency=0.6;hl.OutlineTransparency=0;hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop;hl.Parent=tg;table.insert(ITEM_ESP_OBJECTS,hl)
+    local anc;if tg:IsA("Model") then anc=tg.PrimaryPart;if not anc then for _,v in pairs(tg:GetDescendants()) do if v:IsA("BasePart") then anc=v;break end end end
+    elseif tg:IsA("BasePart") then anc=tg end
+    if anc then
+     local bb=Instance.new("BillboardGui");bb.Name="SlaxrItemESPLabel";bb.Size=UDim2.new(0,110,0,28);bb.StudsOffset=Vector3.new(0,3,0);bb.AlwaysOnTop=true;bb.Parent=anc;table.insert(ITEM_ESP_OBJECTS,bb)
+     local lb=Instance.new("TextLabel",bb);lb.Size=UDim2.new(1,0,1,0);lb.BackgroundTransparency=1;lb.Text=lbl;lb.TextColor3=clr;lb.TextSize=13;lb.Font=Enum.Font.GothamBold;lb.TextStrokeTransparency=0.5;lb.TextStrokeColor3=Color3.fromRGB(0,0,0)
+    end
+   end
+   local tot=0;local all=workspace:GetDescendants()
+   for ik,id in pairs(GET_ITEMS) do
+    local sn={};local mId=id.mesh and nId(id.mesh);local tId=id.texture and nId(id.texture)
+    for i,o in ipairs(all) do
+     if i%200==0 then task.wait() end;local oc=o.ClassName
+     local ok,h=pcall(function()
+      if oc=="SpecialMesh" or oc=="FileMesh" then return (mId and nId(o.MeshId)==mId) or (tId and nId(o.TextureId)==tId)
+      elseif oc=="MeshPart" then return (mId and nId(o.MeshId)==mId) or (tId and nId(o.TextureId)==tId)
+      elseif oc=="Texture" or oc=="Decal" then return tId and nId(o.Texture)==tId
+      end;return false
+     end)
+     if ok and h then
+      local a=o.Parent;while a and a~=workspace do if a:IsA("Model") then break end;a=a.Parent end
+      local tg=(a and a~=workspace and a:IsA("Model")) and a or (o:IsA("BasePart") and o) or (o.Parent and o.Parent:IsA("BasePart") and o.Parent)
+      if tg and not sn[tg] then sn[tg]=true;tot=tot+1;addHL(tg,id.label,CLR[ik] or Color3.fromRGB(100,200,255)) end
+     end
+    end
+   end
+   ITEM_ESP_ACTIVE=true;CmdFeedback.TextColor3=Color3.fromRGB(0,220,80);CmdFeedback.Text="✅ Item ESP — "..tot.." items"
+   Notify("ItemESP","✅ ESP on — "..tot.." items")
+  end);return
+ end
+ if cmd=="unitemesp" then
+  if not ITEM_ESP_ACTIVE and #ITEM_ESP_OBJECTS==0 then CmdFeedback.TextColor3=Color3.fromRGB(255,180,50);CmdFeedback.Text="Item ESP not active";return end
+  for _,o in ipairs(ITEM_ESP_OBJECTS) do pcall(function() o:Destroy() end) end
+  ITEM_ESP_OBJECTS={};ITEM_ESP_ACTIVE=false;CmdFeedback.TextColor3=Color3.fromRGB(0,220,80)
+  CmdFeedback.Text="✅ Item ESP removed";Notify("ItemESP","✅ Removed");return
+ end
 
  -- HELP command (alias)
  if cmd == "help" then
@@ -1686,6 +2049,31 @@ local function ParseCommand(raw)
  CmdFeedback.TextColor3 = Color3.fromRGB(80, 255, 120)
  CmdFeedback.Text = "Chat enabled!"
  return
+ end
+
+ -- REJOIN command: teleport back into the same server
+ if cmd == "rejoin" then
+  CmdFeedback.TextColor3 = Color3.fromRGB(180,180,255)
+  CmdFeedback.Text = "🔄 Rejoining server..."
+  Notify("Rejoin","🔄 Rejoining...")
+  task.delay(1.5, function()
+   pcall(function()
+    game:GetService("TeleportService"):TeleportToPlaceInstance(
+     game.PlaceId, game.JobId,
+     game:GetService("Players").LocalPlayer
+    )
+   end)
+  end)
+  return
+ end
+
+ -- RAINBOWHATS command: toggle RGB cycling on phone hat colors
+ if cmd == "rainbowhats" then
+  RAINBOWHATS_ENABLED = not RAINBOWHATS_ENABLED
+  CmdFeedback.TextColor3 = RAINBOWHATS_ENABLED and Color3.fromRGB(0, 220, 80) or Color3.fromRGB(255, 80, 80)
+  CmdFeedback.Text = RAINBOWHATS_ENABLED and "🌈 Rainbow Hats: ON" or "🌈 Rainbow Hats: OFF"
+  Notify("Rainbow Hats", RAINBOWHATS_ENABLED and "🟢 ON" or "🔴 OFF")
+  return
  end
 
  CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
@@ -1867,6 +2255,110 @@ end
 Players.PlayerAdded:Connect(function(plr)
  if plr ~= LocalPlayer then
  CreateNametag(plr)
+ end
+end)
+
+-- // ─────────────────────────────────────────────────────────
+-- // ─────────────────────────────────────────────────────────
+-- // RAINBOW HATS LOOP
+-- // Cycles through the phone's exact color swatches by firing
+-- // each swatch's click handler directly (server-side, all see it).
+-- // ─────────────────────────────────────────────────────────
+local RAINBOW_COLORS = {
+ Color3.fromRGB(26,141,141),   Color3.fromRGB(140,172,230),
+ Color3.fromRGB(230,0,3),      Color3.fromRGB(141,81,57),
+ Color3.fromRGB(102,109,229),  Color3.fromRGB(229,170,66),
+ Color3.fromRGB(190,75,77),    Color3.fromRGB(69,158,190),
+ Color3.fromRGB(62,190,23),    Color3.fromRGB(193,193,193),
+ Color3.fromRGB(255,255,255),  Color3.fromRGB(240,240,240),
+ Color3.fromRGB(255,255,116),  Color3.fromRGB(148,230,142),
+ Color3.fromRGB(136,223,230),  Color3.fromRGB(64,255,240),
+ Color3.fromRGB(188,167,230),  Color3.fromRGB(230,162,230),
+ Color3.fromRGB(141,0,2),      Color3.fromRGB(39,39,39),
+ Color3.fromRGB(230,96,0),     Color3.fromRGB(230,192,0),
+ Color3.fromRGB(11,230,0),     Color3.fromRGB(0,200,230),
+ Color3.fromRGB(0,3,230),      Color3.fromRGB(123,0,230),
+ Color3.fromRGB(230,0,227),
+}
+local _rhIdx = 1
+
+-- Fire every signal connection on a swatch (works even without firebutton)
+local function _fireSwatch(swatch)
+ -- Method 1: firebutton (executor API, works on GuiButton)
+ pcall(firebutton, swatch)
+ -- Method 2: call handlers via getconnections (fires the game's own click logic)
+ for _, sigName in ipairs({"MouseButton1Click","Activated","InputBegan","MouseButton1Down"}) do
+  pcall(function()
+   local conns = getconnections(swatch[sigName])
+   for _, c in ipairs(conns or {}) do
+    pcall(function() c:Fire() end)        -- Synapse-style
+    pcall(function() c.Function() end)    -- alternative
+   end
+  end)
+ end
+ -- Method 3: VirtualInputManager click at swatch centre (last resort)
+ pcall(function()
+  local pos = swatch.AbsolutePosition
+  local sz  = swatch.AbsoluteSize
+  if sz.X > 0 and sz.Y > 0 then
+   local cx = pos.X + sz.X/2
+   local cy = pos.Y + sz.Y/2
+   local vim = game:GetService("VirtualInputManager")
+   vim:SendMouseButtonEvent(cx, cy, 0, true,  game, 0)
+   task.wait(0.03)
+   vim:SendMouseButtonEvent(cx, cy, 0, false, game, 0)
+  end
+ end)
+end
+
+task.spawn(function()
+ while true do
+  task.wait(0.15)
+  if RAINBOWHATS_ENABLED then
+   pcall(function()
+    local pg = game:GetService("Players").LocalPlayer.PlayerGui
+    local phoneGUI = pg:FindFirstChild("phoneGUI")
+    if not phoneGUI then return end
+
+    -- Enable every layer of the hierarchy so AbsolutePosition/Size are valid
+    local function setChainEnabled(obj, state)
+     local cur = obj
+     while cur and cur ~= game do
+      if cur:IsA("ScreenGui") then cur.Enabled = state
+      elseif cur:IsA("GuiObject") then cur.Visible = state end
+      cur = cur.Parent
+     end
+    end
+
+    local savedEnabled = phoneGUI.Enabled
+    phoneGUI.Enabled = true
+
+    local ok, cs = pcall(function()
+     return phoneGUI.Frame.Background.Wallpaper.GroupFrame.Group.cs
+    end)
+    if not ok or not cs then phoneGUI.Enabled = savedEnabled; return end
+
+    -- Collect all Color swatches
+    local swatches = {}
+    for _, c in ipairs(cs:GetChildren()) do
+     if c.Name == "Color" then
+      table.insert(swatches, c)
+     end
+    end
+    -- Sort by LayoutOrder for visual-order cycling
+    table.sort(swatches, function(a,b)
+     return (a.LayoutOrder or 0) < (b.LayoutOrder or 0)
+    end)
+
+    local n = #swatches
+    if n > 0 then
+     _fireSwatch(swatches[((_rhIdx-1) % n) + 1])
+     _rhIdx = _rhIdx + 1
+    end
+
+    phoneGUI.Enabled = savedEnabled
+   end)
+  end
  end
 end)
 

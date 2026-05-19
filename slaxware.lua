@@ -1342,7 +1342,7 @@ local VALID_TOGGLES = {
 -- // ─────────────────────────────────────────────
 
 local CMD_LIST = {
- { cmd = "bind ", desc = "Bind a key to toggle a feature on/off" },
+ { cmd = "bind <command> <key>", desc = "Bind a key to toggle a feature on/off" },
  { cmd = "unbind ", desc = "Remove the bind from a toggle" },
  { cmd = "binds", desc = "List all your currently active binds" },
  { cmd = "cmd", desc = "Open / close this command list" },

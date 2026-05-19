@@ -1,15 +1,13 @@
 --[[
 
-  ____  __     __   _  _  _  _   __   ____  ____ 
-/ ___)(  )   / _\ ( \/ )/ )( \ / _\ (  _ \(  __)
-\___ \/ (_/\/    \ )  ( \ /\ //    \ )   / ) _) 
+ ____ __ __ _ _ _ _ __ ____ ____
+/ ___)( ) / _ ( \/ )/ )(  / _ ( _ \( __)
+\___ \/ (_/\/  ) (  / //  ) / ) _)
 (____/\____/\_/\_/(_/\_)(_/\_)\_/\_/(__\_)(____)
 
 -- made by grok ai btw lol cry idgaf
 -- Features: auto-reset at 10hp (toggle), aimlock, esp, camlock
 -- The Streets
-
-
 
 ]]
 
@@ -28,30 +26,30 @@ local Mouse = LocalPlayer:GetMouse()
 -- // ─────────────────────────────────────────────
 
 local function hookAutoFire(prompt)
-	prompt.PromptShown:Connect(function()
-		task.wait(0.05) -- one frame buffer so the game registers proximity
-		pcall(function()
-			prompt.HoldDuration        = 0     -- instant, no hold needed
-			prompt.RequiresLineOfSight = false
-			prompt:InputHoldBegin()
-			task.wait(prompt.HoldDuration) -- 0 = fires instantly
-			prompt:InputHoldEnd()
-		end)
-	end)
+ prompt.PromptShown:Connect(function()
+ task.wait(0.05) -- one frame buffer so the game registers proximity
+ pcall(function()
+ prompt.HoldDuration = 0 -- instant, no hold needed
+ prompt.RequiresLineOfSight = false
+ prompt:InputHoldBegin()
+ task.wait(prompt.HoldDuration) -- 0 = fires instantly
+ prompt:InputHoldEnd()
+ end)
+ end)
 end
 
 -- Hook all prompts already in the workspace
 for _, desc in pairs(workspace:GetDescendants()) do
-	if desc:IsA("ProximityPrompt") then
-		hookAutoFire(desc)
-	end
+ if desc:IsA("ProximityPrompt") then
+ hookAutoFire(desc)
+ end
 end
 
 -- Hook any prompts added later (e.g. when a new shop area loads)
 workspace.DescendantAdded:Connect(function(desc)
-	if desc:IsA("ProximityPrompt") then
-		hookAutoFire(desc)
-	end
+ if desc:IsA("ProximityPrompt") then
+ hookAutoFire(desc)
+ end
 end)
 
 -- // Load Aiming Library
@@ -226,11 +224,11 @@ AutoResetToggle.Parent = Frame
 AutoResetToggle.MouseButton1Click:Connect(function()
  AUTO_RESET_ENABLED = not AUTO_RESET_ENABLED
  if AUTO_RESET_ENABLED then
-  AutoResetToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-  AutoResetToggle.Text = "Auto Reset (10 HP): Enabled"
+ AutoResetToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+ AutoResetToggle.Text = "Auto Reset (10 HP): Enabled"
  else
-  AutoResetToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
-  AutoResetToggle.Text = "Auto Reset (10 HP): Disabled"
+ AutoResetToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+ AutoResetToggle.Text = "Auto Reset (10 HP): Disabled"
  end
 end)
 
@@ -348,23 +346,23 @@ local espDropOpen = false
 
 local function UpdateESPBtnLabel()
  if ESP_All then
-  ESPDropBtn.Text = "ESP: All ▼"
-  ESPDropBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+ ESPDropBtn.Text = "ESP: All ▼"
+ ESPDropBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
  else
-  local count = 0
-  for _ in pairs(ESP_Players) do count = count + 1 end
-  if count == 0 then
-   ESPDropBtn.Text = "ESP: None ▼"
-   ESPDropBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
-  elseif count == 1 then
-   local name = ""
-   for plr in pairs(ESP_Players) do name = plr.Name end
-   ESPDropBtn.Text = "ESP: " .. name .. " ▼"
-   ESPDropBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 0)
-  else
-   ESPDropBtn.Text = "ESP: " .. count .. " players ▼"
-   ESPDropBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 0)
-  end
+ local count = 0
+ for _ in pairs(ESP_Players) do count = count + 1 end
+ if count == 0 then
+ ESPDropBtn.Text = "ESP: None ▼"
+ ESPDropBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+ elseif count == 1 then
+ local name = ""
+ for plr in pairs(ESP_Players) do name = plr.Name end
+ ESPDropBtn.Text = "ESP: " .. name .. " ▼"
+ ESPDropBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 0)
+ else
+ ESPDropBtn.Text = "ESP: " .. count .. " players ▼"
+ ESPDropBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 0)
+ end
  end
 end
 
@@ -376,15 +374,15 @@ end
 
 local function RefreshESPDropdown()
  for _, child in pairs(ESPDropFrame:GetChildren()) do
-  if child:IsA("TextButton") then child:Destroy() end
+ if child:IsA("TextButton") then child:Destroy() end
  end
 
  local entries = {}
  table.insert(entries, {label = "All Players", isAll = true})
  for _, plr in pairs(Players:GetPlayers()) do
-  if plr ~= LocalPlayer then
-   table.insert(entries, {label = plr.Name .. " (" .. plr.DisplayName .. ")", player = plr, isAll = false})
-  end
+ if plr ~= LocalPlayer then
+ table.insert(entries, {label = plr.Name .. " (" .. plr.DisplayName .. ")", player = plr, isAll = false})
+ end
  end
 
  local rowH = 30
@@ -394,69 +392,69 @@ local function RefreshESPDropdown()
  ESPDropFrame.CanvasSize = UDim2.new(0, 0, 0, totalH)
 
  for i, entry in ipairs(entries) do
-  local isSelected = entry.isAll and ESP_All or (not entry.isAll and entry.player and ESP_Players[entry.player])
+ local isSelected = entry.isAll and ESP_All or (not entry.isAll and entry.player and ESP_Players[entry.player])
 
-  local btn = Instance.new("TextButton")
-  btn.Size = UDim2.new(1, 0, 0, rowH)
-  btn.BackgroundColor3 = isSelected and Color3.fromRGB(0, 100, 0) or Color3.fromRGB(45, 45, 45)
-  btn.BorderSizePixel = 0
-  btn.TextXAlignment = Enum.TextXAlignment.Left
-  btn.LayoutOrder = i
-  btn.ZIndex = 11
-  btn.Font = Enum.Font.GothamSemibold
-  btn.TextSize = 12
-  btn.TextColor3 = Color3.new(1, 1, 1)
-  btn.TextTruncate = Enum.TextTruncate.AtEnd
+ local btn = Instance.new("TextButton")
+ btn.Size = UDim2.new(1, 0, 0, rowH)
+ btn.BackgroundColor3 = isSelected and Color3.fromRGB(0, 100, 0) or Color3.fromRGB(45, 45, 45)
+ btn.BorderSizePixel = 0
+ btn.TextXAlignment = Enum.TextXAlignment.Left
+ btn.LayoutOrder = i
+ btn.ZIndex = 11
+ btn.Font = Enum.Font.GothamSemibold
+ btn.TextSize = 12
+ btn.TextColor3 = Color3.new(1, 1, 1)
+ btn.TextTruncate = Enum.TextTruncate.AtEnd
 
-  local check = isSelected and "☑ " or "☐ "
-  btn.Text = check .. entry.label
+ local check = isSelected and "☑ " or "☐ "
+ btn.Text = check .. entry.label
 
-  do
-   local pad = Instance.new("UIPadding")
-   pad.PaddingLeft = UDim.new(0, 8)
-   pad.Parent = btn
-  end
-  btn.Parent = ESPDropFrame
+ do
+ local pad = Instance.new("UIPadding")
+ pad.PaddingLeft = UDim.new(0, 8)
+ pad.Parent = btn
+ end
+ btn.Parent = ESPDropFrame
 
-  btn.MouseEnter:Connect(function()
-   local sel = entry.isAll and ESP_All or (not entry.isAll and entry.player and ESP_Players[entry.player])
-   if not sel then btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60) end
-  end)
-  btn.MouseLeave:Connect(function()
-   local sel = entry.isAll and ESP_All or (not entry.isAll and entry.player and ESP_Players[entry.player])
-   btn.BackgroundColor3 = sel and Color3.fromRGB(0, 100, 0) or Color3.fromRGB(45, 45, 45)
-  end)
+ btn.MouseEnter:Connect(function()
+ local sel = entry.isAll and ESP_All or (not entry.isAll and entry.player and ESP_Players[entry.player])
+ if not sel then btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60) end
+ end)
+ btn.MouseLeave:Connect(function()
+ local sel = entry.isAll and ESP_All or (not entry.isAll and entry.player and ESP_Players[entry.player])
+ btn.BackgroundColor3 = sel and Color3.fromRGB(0, 100, 0) or Color3.fromRGB(45, 45, 45)
+ end)
 
-  btn.MouseButton1Click:Connect(function()
-   if entry.isAll then
-    ESP_All = not ESP_All
-    if ESP_All then
-     ESP_Players = {}
-    end
-   else
-    if ESP_All then
-     ESP_All = false
-     ESP_Players = {}
-    end
-    if ESP_Players[entry.player] then
-     ESP_Players[entry.player] = nil
-    else
-     ESP_Players[entry.player] = true
-    end
-   end
-   UpdateESPBtnLabel()
-   RefreshESPDropdown()
-  end)
+ btn.MouseButton1Click:Connect(function()
+ if entry.isAll then
+ ESP_All = not ESP_All
+ if ESP_All then
+ ESP_Players = {}
+ end
+ else
+ if ESP_All then
+ ESP_All = false
+ ESP_Players = {}
+ end
+ if ESP_Players[entry.player] then
+ ESP_Players[entry.player] = nil
+ else
+ ESP_Players[entry.player] = true
+ end
+ end
+ UpdateESPBtnLabel()
+ RefreshESPDropdown()
+ end)
  end
 end
 
 ESPDropBtn.MouseButton1Click:Connect(function()
  espDropOpen = not espDropOpen
  if espDropOpen then
-  RefreshESPDropdown()
-  ESPDropFrame.Visible = true
+ RefreshESPDropdown()
+ ESPDropFrame.Visible = true
  else
-  ESPDropFrame.Visible = false
+ ESPDropFrame.Visible = false
  end
 end)
 
@@ -465,8 +463,8 @@ Players.PlayerAdded:Connect(function()
 end)
 Players.PlayerRemoving:Connect(function(plr)
  if ESP_Players[plr] then
-  ESP_Players[plr] = nil
-  UpdateESPBtnLabel()
+ ESP_Players[plr] = nil
+ UpdateESPBtnLabel()
  end
  if espDropOpen then RefreshESPDropdown() end
 end)
@@ -598,16 +596,16 @@ CamlockDropBtn.Size = UDim2.new(0.9, 0, 0, 30)
 CamlockDropBtn.Position = UDim2.new(0.05, 0, 0, 465)
 CamlockDropBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 CamlockDropBtn.BorderSizePixel = 0
-CamlockDropBtn.Text = "▼  Select Player..."
+CamlockDropBtn.Text = "▼ Select Player..."
 CamlockDropBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
 CamlockDropBtn.TextSize = 13
 CamlockDropBtn.Font = Enum.Font.Gotham
 CamlockDropBtn.TextXAlignment = Enum.TextXAlignment.Left
 CamlockDropBtn.TextTruncate = Enum.TextTruncate.AtEnd
 do
-	local pad = Instance.new("UIPadding")
-	pad.PaddingLeft = UDim.new(0, 8)
-	pad.Parent = CamlockDropBtn
+ local pad = Instance.new("UIPadding")
+ pad.PaddingLeft = UDim.new(0, 8)
+ pad.Parent = CamlockDropBtn
 end
 CamlockDropBtn.Parent = Frame
 
@@ -630,79 +628,79 @@ CamlockDropLayout.Parent = CamlockDropFrame
 local camlockDropOpen = false
 
 local function RefreshCamlockDropdown()
-	for _, child in pairs(CamlockDropFrame:GetChildren()) do
-		if child:IsA("TextButton") then child:Destroy() end
-	end
-	local entries = {}
-	table.insert(entries, {label = "None", player = nil})
-	for _, plr in pairs(Players:GetPlayers()) do
-		if plr ~= LocalPlayer then
-			table.insert(entries, {label = plr.Name .. " (" .. plr.DisplayName .. ")", player = plr})
-		end
-	end
-	local rowH = 28
-	local maxVisible = 5
-	local totalH = #entries * rowH
-	CamlockDropFrame.Size = UDim2.new(0.9, 0, 0, math.min(totalH, maxVisible * rowH))
-	CamlockDropFrame.CanvasSize = UDim2.new(0, 0, 0, totalH)
-	for i, entry in ipairs(entries) do
-		local btn = Instance.new("TextButton")
-		btn.Size = UDim2.new(1, 0, 0, rowH)
-		btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-		btn.BorderSizePixel = 0
-		btn.Text = entry.label
-		btn.TextColor3 = Color3.new(1, 1, 1)
-		btn.TextSize = 12
-		btn.Font = Enum.Font.Gotham
-		btn.TextXAlignment = Enum.TextXAlignment.Left
-		btn.LayoutOrder = i
-		btn.ZIndex = 11
-		do
-			local pad = Instance.new("UIPadding")
-			pad.PaddingLeft = UDim.new(0, 8)
-			pad.Parent = btn
-		end
-		btn.Parent = CamlockDropFrame
-		btn.MouseEnter:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(65, 65, 65) end)
-		btn.MouseLeave:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45) end)
-		btn.MouseButton1Click:Connect(function()
-			CAMLOCK_TARGET = entry.player
-			if entry.player then
-				CamlockDropBtn.Text = "▼  " .. entry.player.Name
-				CamlockDropBtn.TextColor3 = Color3.new(1, 1, 1)
-				TargetLabel.Text = "Target: " .. entry.player.Name
-			else
-				CamlockDropBtn.Text = "▼  Select Player..."
-				CamlockDropBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
-				TargetLabel.Text = "Target: none"
-			end
-			CamlockDropFrame.Visible = false
-			camlockDropOpen = false
-		end)
-	end
+ for _, child in pairs(CamlockDropFrame:GetChildren()) do
+ if child:IsA("TextButton") then child:Destroy() end
+ end
+ local entries = {}
+ table.insert(entries, {label = "None", player = nil})
+ for _, plr in pairs(Players:GetPlayers()) do
+ if plr ~= LocalPlayer then
+ table.insert(entries, {label = plr.Name .. " (" .. plr.DisplayName .. ")", player = plr})
+ end
+ end
+ local rowH = 28
+ local maxVisible = 5
+ local totalH = #entries * rowH
+ CamlockDropFrame.Size = UDim2.new(0.9, 0, 0, math.min(totalH, maxVisible * rowH))
+ CamlockDropFrame.CanvasSize = UDim2.new(0, 0, 0, totalH)
+ for i, entry in ipairs(entries) do
+ local btn = Instance.new("TextButton")
+ btn.Size = UDim2.new(1, 0, 0, rowH)
+ btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+ btn.BorderSizePixel = 0
+ btn.Text = entry.label
+ btn.TextColor3 = Color3.new(1, 1, 1)
+ btn.TextSize = 12
+ btn.Font = Enum.Font.Gotham
+ btn.TextXAlignment = Enum.TextXAlignment.Left
+ btn.LayoutOrder = i
+ btn.ZIndex = 11
+ do
+ local pad = Instance.new("UIPadding")
+ pad.PaddingLeft = UDim.new(0, 8)
+ pad.Parent = btn
+ end
+ btn.Parent = CamlockDropFrame
+ btn.MouseEnter:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(65, 65, 65) end)
+ btn.MouseLeave:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45) end)
+ btn.MouseButton1Click:Connect(function()
+ CAMLOCK_TARGET = entry.player
+ if entry.player then
+ CamlockDropBtn.Text = "▼ " .. entry.player.Name
+ CamlockDropBtn.TextColor3 = Color3.new(1, 1, 1)
+ TargetLabel.Text = "Target: " .. entry.player.Name
+ else
+ CamlockDropBtn.Text = "▼ Select Player..."
+ CamlockDropBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
+ TargetLabel.Text = "Target: none"
+ end
+ CamlockDropFrame.Visible = false
+ camlockDropOpen = false
+ end)
+ end
 end
 
 CamlockDropBtn.MouseButton1Click:Connect(function()
-	camlockDropOpen = not camlockDropOpen
-	if camlockDropOpen then
-		RefreshCamlockDropdown()
-		CamlockDropFrame.Visible = true
-	else
-		CamlockDropFrame.Visible = false
-	end
+ camlockDropOpen = not camlockDropOpen
+ if camlockDropOpen then
+ RefreshCamlockDropdown()
+ CamlockDropFrame.Visible = true
+ else
+ CamlockDropFrame.Visible = false
+ end
 end)
 
 Players.PlayerAdded:Connect(function()
-	if camlockDropOpen then RefreshCamlockDropdown() end
+ if camlockDropOpen then RefreshCamlockDropdown() end
 end)
 Players.PlayerRemoving:Connect(function(plr)
-	if plr == CAMLOCK_TARGET then
-		CAMLOCK_TARGET = nil
-		TargetLabel.Text = "Target: none"
-		CamlockDropBtn.Text = "▼  Select Player..."
-		CamlockDropBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
-	end
-	if camlockDropOpen then RefreshCamlockDropdown() end
+ if plr == CAMLOCK_TARGET then
+ CAMLOCK_TARGET = nil
+ TargetLabel.Text = "Target: none"
+ CamlockDropBtn.Text = "▼ Select Player..."
+ CamlockDropBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
+ end
+ if camlockDropOpen then RefreshCamlockDropdown() end
 end)
 
 CamlockToggle.MouseButton1Click:Connect(function()
@@ -998,16 +996,16 @@ AimlockDropBtn.Size = UDim2.new(0.9, 0, 0, 32)
 AimlockDropBtn.Position = UDim2.new(0.05, 0, 0, 688)
 AimlockDropBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 AimlockDropBtn.BorderSizePixel = 0
-AimlockDropBtn.Text = "▼  Select Player..."
+AimlockDropBtn.Text = "▼ Select Player..."
 AimlockDropBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
 AimlockDropBtn.TextSize = 13
 AimlockDropBtn.Font = Enum.Font.GothamSemibold
 AimlockDropBtn.TextXAlignment = Enum.TextXAlignment.Left
 AimlockDropBtn.TextTruncate = Enum.TextTruncate.AtEnd
 do
-	local pad = Instance.new("UIPadding")
-	pad.PaddingLeft = UDim.new(0, 8)
-	pad.Parent = AimlockDropBtn
+ local pad = Instance.new("UIPadding")
+ pad.PaddingLeft = UDim.new(0, 8)
+ pad.Parent = AimlockDropBtn
 end
 AimlockDropBtn.Parent = Frame
 
@@ -1041,98 +1039,97 @@ NameAimlockStatus.Parent = Frame
 local aimlockDropOpen = false
 
 local function SetAimlockTarget(plr)
-	NAME_AIMLOCK_TARGET = plr
-	NAME_AIMLOCK_ENABLED = false
-	if plr then
-		NAME_AIMLOCK_ENABLED = true
-		NameAimlockLabel.Text = "Name Aimlock: " .. plr.Name
-		AimlockDropBtn.Text = "▼  " .. plr.Name
-		AimlockDropBtn.TextColor3 = Color3.fromRGB(255, 200, 50)
-		NameAimlockStatus.Text = "Status: LOCKED"
-		NameAimlockStatus.TextColor3 = Color3.fromRGB(0, 200, 80)
-		-- Auto-disable FOV lock so name aimlock has full range
-		Aiming.ShowFOV = false
-		Aiming.FOV = 9999
-		Settings.ShowFOV = false
-		Settings.FOV = 9999
-		FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
-		FOVCircleToggle.Text = "CursorLock Circle: Hidden"
-	else
-		NameAimlockLabel.Text = "Name Aimlock: none"
-		AimlockDropBtn.Text = "▼  Select Player..."
-		AimlockDropBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
-		NameAimlockStatus.Text = "Status: inactive"
-		NameAimlockStatus.TextColor3 = Color3.fromRGB(170, 0, 0)
-	end
+ NAME_AIMLOCK_TARGET = plr
+ NAME_AIMLOCK_ENABLED = false
+ if plr then
+ NAME_AIMLOCK_ENABLED = true
+ NameAimlockLabel.Text = "Name Aimlock: " .. plr.Name
+ AimlockDropBtn.Text = "▼ " .. plr.Name
+ AimlockDropBtn.TextColor3 = Color3.fromRGB(255, 200, 50)
+ NameAimlockStatus.Text = "Status: LOCKED"
+ NameAimlockStatus.TextColor3 = Color3.fromRGB(0, 200, 80)
+ -- Auto-disable FOV lock so name aimlock has full range
+ Aiming.ShowFOV = false
+ Aiming.FOV = 9999
+ Settings.ShowFOV = false
+ Settings.FOV = 9999
+ FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+ FOVCircleToggle.Text = "CursorLock Circle: Hidden"
+ else
+ NameAimlockLabel.Text = "Name Aimlock: none"
+ AimlockDropBtn.Text = "▼ Select Player..."
+ AimlockDropBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
+ NameAimlockStatus.Text = "Status: inactive"
+ NameAimlockStatus.TextColor3 = Color3.fromRGB(170, 0, 0)
+ end
 end
 
 local function RefreshAimlockDropdown()
-	for _, child in pairs(AimlockDropFrame:GetChildren()) do
-		if child:IsA("TextButton") then child:Destroy() end
-	end
-	local entries = {}
-	table.insert(entries, {label = "None", player = nil})
-	for _, plr in pairs(Players:GetPlayers()) do
-		if plr ~= LocalPlayer then
-			table.insert(entries, {label = plr.Name .. " (" .. plr.DisplayName .. ")", player = plr})
-		end
-	end
-	local rowH = 28
-	local maxVisible = 5
-	local totalH = #entries * rowH
-	AimlockDropFrame.Size = UDim2.new(0.9, 0, 0, math.min(totalH, maxVisible * rowH))
-	AimlockDropFrame.CanvasSize = UDim2.new(0, 0, 0, totalH)
-	for i, entry in ipairs(entries) do
-		local btn = Instance.new("TextButton")
-		btn.Size = UDim2.new(1, 0, 0, rowH)
-		btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-		btn.BorderSizePixel = 0
-		btn.Text = entry.label
-		btn.TextColor3 = Color3.new(1, 1, 1)
-		btn.TextSize = 12
-		btn.Font = Enum.Font.GothamSemibold
-		btn.TextXAlignment = Enum.TextXAlignment.Left
-		btn.LayoutOrder = i
-		btn.ZIndex = 11
-		do
-			local pad = Instance.new("UIPadding")
-			pad.PaddingLeft = UDim.new(0, 8)
-			pad.Parent = btn
-		end
-		btn.Parent = AimlockDropFrame
-		btn.MouseEnter:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(70, 70, 40) end)
-		btn.MouseLeave:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50) end)
-		btn.MouseButton1Click:Connect(function()
-			SetAimlockTarget(entry.player)
-			AimlockDropFrame.Visible = false
-			aimlockDropOpen = false
-		end)
-	end
+ for _, child in pairs(AimlockDropFrame:GetChildren()) do
+ if child:IsA("TextButton") then child:Destroy() end
+ end
+ local entries = {}
+ table.insert(entries, {label = "None", player = nil})
+ for _, plr in pairs(Players:GetPlayers()) do
+ if plr ~= LocalPlayer then
+ table.insert(entries, {label = plr.Name .. " (" .. plr.DisplayName .. ")", player = plr})
+ end
+ end
+ local rowH = 28
+ local maxVisible = 5
+ local totalH = #entries * rowH
+ AimlockDropFrame.Size = UDim2.new(0.9, 0, 0, math.min(totalH, maxVisible * rowH))
+ AimlockDropFrame.CanvasSize = UDim2.new(0, 0, 0, totalH)
+ for i, entry in ipairs(entries) do
+ local btn = Instance.new("TextButton")
+ btn.Size = UDim2.new(1, 0, 0, rowH)
+ btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+ btn.BorderSizePixel = 0
+ btn.Text = entry.label
+ btn.TextColor3 = Color3.new(1, 1, 1)
+ btn.TextSize = 12
+ btn.Font = Enum.Font.GothamSemibold
+ btn.TextXAlignment = Enum.TextXAlignment.Left
+ btn.LayoutOrder = i
+ btn.ZIndex = 11
+ do
+ local pad = Instance.new("UIPadding")
+ pad.PaddingLeft = UDim.new(0, 8)
+ pad.Parent = btn
+ end
+ btn.Parent = AimlockDropFrame
+ btn.MouseEnter:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(70, 70, 40) end)
+ btn.MouseLeave:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50) end)
+ btn.MouseButton1Click:Connect(function()
+ SetAimlockTarget(entry.player)
+ AimlockDropFrame.Visible = false
+ aimlockDropOpen = false
+ end)
+ end
 end
 
 AimlockDropBtn.MouseButton1Click:Connect(function()
-	aimlockDropOpen = not aimlockDropOpen
-	if aimlockDropOpen then
-		RefreshAimlockDropdown()
-		AimlockDropFrame.Visible = true
-	else
-		AimlockDropFrame.Visible = false
-	end
+ aimlockDropOpen = not aimlockDropOpen
+ if aimlockDropOpen then
+ RefreshAimlockDropdown()
+ AimlockDropFrame.Visible = true
+ else
+ AimlockDropFrame.Visible = false
+ end
 end)
 
 -- Auto-clear Name Aimlock if the target leaves the game
 Players.PlayerRemoving:Connect(function(plr)
-	if plr == NAME_AIMLOCK_TARGET then
-		SetAimlockTarget(nil)
-		NameAimlockStatus.Text = "Status: inactive (player left)"
-	end
-	if aimlockDropOpen then RefreshAimlockDropdown() end
+ if plr == NAME_AIMLOCK_TARGET then
+ SetAimlockTarget(nil)
+ NameAimlockStatus.Text = "Status: inactive (player left)"
+ end
+ if aimlockDropOpen then RefreshAimlockDropdown() end
 end)
 
 Players.PlayerAdded:Connect(function()
-	if aimlockDropOpen then RefreshAimlockDropdown() end
+ if aimlockDropOpen then RefreshAimlockDropdown() end
 end)
-
 
 -- // ─────────────────────────────────────────────
 -- // COMMAND BAR
@@ -1165,7 +1162,7 @@ CmdBox.Position = UDim2.new(0.05, 0, 0, 792)
 CmdBox.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 CmdBox.BorderSizePixel = 1
 CmdBox.BorderColor3 = Color3.fromRGB(80, 80, 80)
-CmdBox.PlaceholderText = "e.g.  bind aimlock f"
+CmdBox.PlaceholderText = "e.g. bind aimlock f"
 CmdBox.PlaceholderColor3 = Color3.fromRGB(90, 90, 90)
 CmdBox.Text = ""
 CmdBox.TextColor3 = Color3.new(1, 1, 1)
@@ -1176,10 +1173,10 @@ CmdBox.ZIndex = 5
 CmdBox.Parent = Frame
 
 do
-	local pad = Instance.new("UIPadding")
-	pad.PaddingLeft = UDim.new(0, 8)
-	pad.PaddingRight = UDim.new(0, 8)
-	pad.Parent = CmdBox
+ local pad = Instance.new("UIPadding")
+ pad.PaddingLeft = UDim.new(0, 8)
+ pad.PaddingRight = UDim.new(0, 8)
+ pad.Parent = CmdBox
 end
 
 -- Feedback label shown below the box
@@ -1203,141 +1200,141 @@ local _lastNameAimlockTarget = nil
 
 -- Helper: map a simple key string to the Enum.KeyCode name
 local function ResolveKeyCode(keyStr)
-	-- Single letter A-Z
-	if #keyStr == 1 and keyStr:match("^%a$") then
-		return "KeyCode." .. keyStr:upper()
-	end
-	-- F1-F12
-	if keyStr:match("^[fF]%d%d?$") then
-		return "KeyCode." .. keyStr:upper()
-	end
-	-- Named keys mapping
-	local named = {
-		["space"]        = "KeyCode.Space",
-		["shift"]        = "KeyCode.LeftShift",
-		["lshift"]       = "KeyCode.LeftShift",
-		["rshift"]       = "KeyCode.RightShift",
-		["ctrl"]         = "KeyCode.LeftControl",
-		["lctrl"]        = "KeyCode.LeftControl",
-		["rctrl"]        = "KeyCode.RightControl",
-		["alt"]          = "KeyCode.LeftAlt",
-		["lalt"]         = "KeyCode.LeftAlt",
-		["ralt"]         = "KeyCode.RightAlt",
-		["tab"]          = "KeyCode.Tab",
-		["capslock"]     = "KeyCode.CapsLock",
-		["enter"]        = "KeyCode.Return",
-		["return"]       = "KeyCode.Return",
-		["backspace"]    = "KeyCode.Backspace",
-		["delete"]       = "KeyCode.Delete",
-		["insert"]       = "KeyCode.Insert",
-		["home"]         = "KeyCode.Home",
-		["end"]          = "KeyCode.End",
-		["pageup"]       = "KeyCode.PageUp",
-		["pagedown"]     = "KeyCode.PageDown",
-		["up"]           = "KeyCode.Up",
-		["down"]         = "KeyCode.Down",
-		["left"]         = "KeyCode.Left",
-		["right"]        = "KeyCode.Right",
-		["num0"]         = "KeyCode.Zero",
-		["num1"]         = "KeyCode.One",
-		["num2"]         = "KeyCode.Two",
-		["num3"]         = "KeyCode.Three",
-		["num4"]         = "KeyCode.Four",
-		["num5"]         = "KeyCode.Five",
-		["num6"]         = "KeyCode.Six",
-		["num7"]         = "KeyCode.Seven",
-		["num8"]         = "KeyCode.Eight",
-		["num9"]         = "KeyCode.Nine",
-	}
-	return named[keyStr:lower()]
+ -- Single letter A-Z
+ if #keyStr == 1 and keyStr:match("^%a$") then
+ return "KeyCode." .. keyStr:upper()
+ end
+ -- F1-F12
+ if keyStr:match("^[fF]%d%d?$") then
+ return "KeyCode." .. keyStr:upper()
+ end
+ -- Named keys mapping
+ local named = {
+ ["space"] = "KeyCode.Space",
+ ["shift"] = "KeyCode.LeftShift",
+ ["lshift"] = "KeyCode.LeftShift",
+ ["rshift"] = "KeyCode.RightShift",
+ ["ctrl"] = "KeyCode.LeftControl",
+ ["lctrl"] = "KeyCode.LeftControl",
+ ["rctrl"] = "KeyCode.RightControl",
+ ["alt"] = "KeyCode.LeftAlt",
+ ["lalt"] = "KeyCode.LeftAlt",
+ ["ralt"] = "KeyCode.RightAlt",
+ ["tab"] = "KeyCode.Tab",
+ ["capslock"] = "KeyCode.CapsLock",
+ ["enter"] = "KeyCode.Return",
+ ["return"] = "KeyCode.Return",
+ ["backspace"] = "KeyCode.Backspace",
+ ["delete"] = "KeyCode.Delete",
+ ["insert"] = "KeyCode.Insert",
+ ["home"] = "KeyCode.Home",
+ ["end"] = "KeyCode.End",
+ ["pageup"] = "KeyCode.PageUp",
+ ["pagedown"] = "KeyCode.PageDown",
+ ["up"] = "KeyCode.Up",
+ ["down"] = "KeyCode.Down",
+ ["left"] = "KeyCode.Left",
+ ["right"] = "KeyCode.Right",
+ ["num0"] = "KeyCode.Zero",
+ ["num1"] = "KeyCode.One",
+ ["num2"] = "KeyCode.Two",
+ ["num3"] = "KeyCode.Three",
+ ["num4"] = "KeyCode.Four",
+ ["num5"] = "KeyCode.Five",
+ ["num6"] = "KeyCode.Six",
+ ["num7"] = "KeyCode.Seven",
+ ["num8"] = "KeyCode.Eight",
+ ["num9"] = "KeyCode.Nine",
+ }
+ return named[keyStr:lower()]
 end
 
 -- Toggle dispatcher: given a name, flip the toggle
 -- Helper: fire a Roblox toast notification
 local function Notify(title, text)
-	pcall(function()
-		game:GetService("StarterGui"):SetCore("SendNotification", {
-			Title    = title,
-			Text     = text,
-			Duration = 3,
-		})
-	end)
+ pcall(function()
+ game:GetService("StarterGui"):SetCore("SendNotification", {
+ Title = title,
+ Text = text,
+ Duration = 3,
+ })
+ end)
 end
 
 local function FireToggle(name)
-	if name == "aimlock" then
-		-- True if either the main aimlock OR the name aimlock is currently active
-		local anyActive = Aiming.Enabled or NAME_AIMLOCK_ENABLED
-		if anyActive then
-			-- ── Turn EVERYTHING off ──────────────────────────────────────────
-			Aiming.Enabled = false
-			Settings.Enabled = false
-			ToggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
-			ToggleBtn.Text = "Disabled CursorLock"
-			-- Save + clear the Name Aimlock target
-			if NAME_AIMLOCK_ENABLED and NAME_AIMLOCK_TARGET then
-				_lastNameAimlockTarget = NAME_AIMLOCK_TARGET
-			end
-			SetAimlockTarget(nil)
-			Notify("Aimlock", "🔴  Turned OFF")
-		else
-			-- ── Turn main aimlock back ON ─────────────────────────────────────
-			Aiming.Enabled = true
-			Settings.Enabled = true
-			ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-			ToggleBtn.Text = "Enabled CursorLock"
-			-- Restore the last Name Aimlock target if one was saved
-			if _lastNameAimlockTarget then
-				SetAimlockTarget(_lastNameAimlockTarget)
-				_lastNameAimlockTarget = nil
-			end
-			Notify("Aimlock", "🟢  Turned ON")
-		end
-	elseif name == "autoreset" then
-		AUTO_RESET_ENABLED = not AUTO_RESET_ENABLED
-		AutoResetToggle.BackgroundColor3 = AUTO_RESET_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
-		AutoResetToggle.Text = "Auto Reset (10 HP): " .. (AUTO_RESET_ENABLED and "Enabled" or "Disabled")
-		Notify("Auto Reset", AUTO_RESET_ENABLED and "🟢  Turned ON" or "🔴  Turned OFF")
-	elseif name == "fly" then
-		FLY_ENABLED = not FLY_ENABLED
-		FlyToggle.BackgroundColor3 = FLY_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
-		FlyToggle.Text = "Fly: " .. (FLY_ENABLED and "Enabled" or "Disabled")
-		if FLY_ENABLED then StartFly() else StopFly() end
-		Notify("Fly", FLY_ENABLED and "🟢  Turned ON" or "🔴  Turned OFF")
-	elseif name == "noclip" then
-		NOCLIP_ENABLED = not NOCLIP_ENABLED
-		NoclipToggle.BackgroundColor3 = NOCLIP_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
-		NoclipToggle.Text = "Noclip: " .. (NOCLIP_ENABLED and "Enabled" or "Disabled")
-		Notify("Noclip", NOCLIP_ENABLED and "🟢  Turned ON" or "🔴  Turned OFF")
-	elseif name == "camlock" then
-		CAMLOCK_ENABLED = not CAMLOCK_ENABLED
-		CamlockToggle.BackgroundColor3 = CAMLOCK_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
-		CamlockToggle.Text = "Camlock: " .. (CAMLOCK_ENABLED and "Enabled" or "Disabled")
-		Notify("Camlock", CAMLOCK_ENABLED and "🟢  Turned ON" or "🔴  Turned OFF")
-	elseif name == "tpwalk" then
-		TPWALK_ENABLED = not TPWALK_ENABLED
-		TPWalkToggle.BackgroundColor3 = TPWALK_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
-		TPWalkToggle.Text = "TP Walk: " .. (TPWALK_ENABLED and "Enabled" or "Disabled")
-		Notify("TP Walk", TPWALK_ENABLED and "🟢  Turned ON" or "🔴  Turned OFF")
-	elseif name == "fovvisible" then
-		Settings.ShowFOV = not Settings.ShowFOV
-		Aiming.ShowFOV = Settings.ShowFOV
-		FOVCircleToggle.BackgroundColor3 = Settings.ShowFOV and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
-		FOVCircleToggle.Text = Settings.ShowFOV and "CursorLock Circle: Visible" or "CursorLock Circle: Hidden"
-		Notify("FOV Circle", Settings.ShowFOV and "🟢  Turned ON" or "🔴  Turned OFF")
-	end
+ if name == "aimlock" then
+ -- True if either the main aimlock OR the name aimlock is currently active
+ local anyActive = Aiming.Enabled or NAME_AIMLOCK_ENABLED
+ if anyActive then
+ -- ── Turn EVERYTHING off ──────────────────────────────────────────
+ Aiming.Enabled = false
+ Settings.Enabled = false
+ ToggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+ ToggleBtn.Text = "Disabled CursorLock"
+ -- Save + clear the Name Aimlock target
+ if NAME_AIMLOCK_ENABLED and NAME_AIMLOCK_TARGET then
+ _lastNameAimlockTarget = NAME_AIMLOCK_TARGET
+ end
+ SetAimlockTarget(nil)
+ Notify("Aimlock", "🔴 Turned OFF")
+ else
+ -- ── Turn main aimlock back ON ─────────────────────────────────────
+ Aiming.Enabled = true
+ Settings.Enabled = true
+ ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+ ToggleBtn.Text = "Enabled CursorLock"
+ -- Restore the last Name Aimlock target if one was saved
+ if _lastNameAimlockTarget then
+ SetAimlockTarget(_lastNameAimlockTarget)
+ _lastNameAimlockTarget = nil
+ end
+ Notify("Aimlock", "🟢 Turned ON")
+ end
+ elseif name == "autoreset" then
+ AUTO_RESET_ENABLED = not AUTO_RESET_ENABLED
+ AutoResetToggle.BackgroundColor3 = AUTO_RESET_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+ AutoResetToggle.Text = "Auto Reset (10 HP): " .. (AUTO_RESET_ENABLED and "Enabled" or "Disabled")
+ Notify("Auto Reset", AUTO_RESET_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
+ elseif name == "fly" then
+ FLY_ENABLED = not FLY_ENABLED
+ FlyToggle.BackgroundColor3 = FLY_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+ FlyToggle.Text = "Fly: " .. (FLY_ENABLED and "Enabled" or "Disabled")
+ if FLY_ENABLED then StartFly() else StopFly() end
+ Notify("Fly", FLY_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
+ elseif name == "noclip" then
+ NOCLIP_ENABLED = not NOCLIP_ENABLED
+ NoclipToggle.BackgroundColor3 = NOCLIP_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+ NoclipToggle.Text = "Noclip: " .. (NOCLIP_ENABLED and "Enabled" or "Disabled")
+ Notify("Noclip", NOCLIP_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
+ elseif name == "camlock" then
+ CAMLOCK_ENABLED = not CAMLOCK_ENABLED
+ CamlockToggle.BackgroundColor3 = CAMLOCK_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+ CamlockToggle.Text = "Camlock: " .. (CAMLOCK_ENABLED and "Enabled" or "Disabled")
+ Notify("Camlock", CAMLOCK_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
+ elseif name == "tpwalk" then
+ TPWALK_ENABLED = not TPWALK_ENABLED
+ TPWalkToggle.BackgroundColor3 = TPWALK_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+ TPWalkToggle.Text = "TP Walk: " .. (TPWALK_ENABLED and "Enabled" or "Disabled")
+ Notify("TP Walk", TPWALK_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
+ elseif name == "fovvisible" then
+ Settings.ShowFOV = not Settings.ShowFOV
+ Aiming.ShowFOV = Settings.ShowFOV
+ FOVCircleToggle.BackgroundColor3 = Settings.ShowFOV and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+ FOVCircleToggle.Text = Settings.ShowFOV and "CursorLock Circle: Visible" or "CursorLock Circle: Hidden"
+ Notify("FOV Circle", Settings.ShowFOV and "🟢 Turned ON" or "🔴 Turned OFF")
+ end
 end
 
 -- Valid toggle names for validation
 local VALID_TOGGLES = {
-	["aimlock"] = true,
-	["autoreset"] = true,
-	["fly"] = true,
-	["noclip"] = true,
-	["camlock"] = true,
-	["tpwalk"] = true,
-	["fovvisible"] = true,
-	["keylock"] = true,   -- mouse-target aimlock setter
+ ["aimlock"] = true,
+ ["autoreset"] = true,
+ ["fly"] = true,
+ ["noclip"] = true,
+ ["camlock"] = true,
+ ["tpwalk"] = true,
+ ["fovvisible"] = true,
+ ["keylock"] = true, -- mouse-target aimlock setter
 }
 
 -- // ─────────────────────────────────────────────
@@ -1345,650 +1342,437 @@ local VALID_TOGGLES = {
 -- // ─────────────────────────────────────────────
 
 local CMD_LIST = {
-	{ cmd = "bind <toggle> <key>",   desc = "Bind a key to toggle a feature on/off" },
-	{ cmd = "unbind <toggle>",       desc = "Remove the bind from a toggle" },
-	{ cmd = "binds",                 desc = "List all your currently active binds" },
-	{ cmd = "get <item>",            desc = "Teleport to a gun in the world (or: get ammo)" },
-	{ cmd = "cmd",                   desc = "Open / close this command list" },
-	{ cmd = "help",                  desc = "Quick tip for the command bar" },
-	{ cmd = "chatenable",            desc = "Re-enable the Roblox chat window & input bar" },
-	{ cmd = "", desc = "── Get: available items ───────────────" },
-	{ cmd = "uzi",                   desc = "→  Uzi | $150" },
-	{ cmd = "sawed",                 desc = "→  Sawed Off | $150" },
-	{ cmd = "", desc = "── Bindable toggles ──────────────────" },
-	{ cmd = "aimlock",               desc = "CursorLock + Name Aimlock (kill-switch)" },
-	{ cmd = "autoreset",             desc = "Auto reset character at ≤10 HP" },
-	{ cmd = "fly",                   desc = "Fly mode" },
-	{ cmd = "noclip",                desc = "No-clip through walls" },
-	{ cmd = "camlock",               desc = "Lock camera onto selected player" },
-	{ cmd = "tpwalk",                desc = "Teleport-step walking" },
-	{ cmd = "fovvisible",            desc = "Show / hide the FOV circle" },
-	{ cmd = "keylock",               desc = "Hover cursor on a player + press bind to lock aimlock on them" },
+ { cmd = "bind ", desc = "Bind a key to toggle a feature on/off" },
+ { cmd = "unbind ", desc = "Remove the bind from a toggle" },
+ { cmd = "binds", desc = "List all your currently active binds" },
+ { cmd = "cmd", desc = "Open / close this command list" },
+ { cmd = "help", desc = "Quick tip for the command bar" },
+ { cmd = "chatenable", desc = "Re-enable the Roblox chat window & input bar" },
+ { cmd = "", desc = "── Bindable toggles ──────────────────" },
+ { cmd = "aimlock", desc = "CursorLock + Name Aimlock (kill-switch)" },
+ { cmd = "autoreset", desc = "Auto reset character at ≤10 HP" },
+ { cmd = "fly", desc = "Fly mode" },
+ { cmd = "noclip", desc = "No-clip through walls" },
+ { cmd = "camlock", desc = "Lock camera onto selected player" },
+ { cmd = "tpwalk", desc = "Teleport-step walking" },
+ { cmd = "fovvisible", desc = "Show / hide the FOV circle" },
+ { cmd = "keylock", desc = "Hover cursor on a player + press bind to lock aimlock on them" },
 }
 
-local ROW_H      = 36
-local POPUP_W    = 400
-local HEADER_H   = 38
-local FOOTER_H   = 36
-local POPUP_H    = HEADER_H + (#CMD_LIST * ROW_H) + FOOTER_H + 8
+local ROW_H = 36
+local POPUP_W = 400
+local HEADER_H = 38
+local FOOTER_H = 36
+local POPUP_H = HEADER_H + (#CMD_LIST * ROW_H) + FOOTER_H + 8
 
 -- Popup container (floating, draggable, starts hidden)
 local CmdPopup = Instance.new("Frame")
-CmdPopup.Name        = "CmdPopup"
-CmdPopup.Size        = UDim2.new(0, POPUP_W, 0, POPUP_H)
-CmdPopup.Position    = UDim2.new(0.5, -(POPUP_W / 2), 0.5, -(POPUP_H / 2) - 60)
+CmdPopup.Name = "CmdPopup"
+CmdPopup.Size = UDim2.new(0, POPUP_W, 0, POPUP_H)
+CmdPopup.Position = UDim2.new(0.5, -(POPUP_W / 2), 0.5, -(POPUP_H / 2) - 60)
 CmdPopup.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-CmdPopup.BorderSizePixel  = 0
-CmdPopup.Visible     = false
-CmdPopup.ZIndex      = 20
-CmdPopup.Active      = true
-CmdPopup.Draggable   = false
-CmdPopup.Parent      = ScreenGui
+CmdPopup.BorderSizePixel = 0
+CmdPopup.Visible = false
+CmdPopup.ZIndex = 20
+CmdPopup.Active = true
+CmdPopup.Draggable = false
+CmdPopup.Parent = ScreenGui
 
 do
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 6)
-	corner.Parent = CmdPopup
+ local corner = Instance.new("UICorner")
+ corner.CornerRadius = UDim.new(0, 6)
+ corner.Parent = CmdPopup
 end
 
 -- Drag logic for the popup
 do
-	local popupDragging  = false
-	local popupDragStart = nil
-	local popupStartPos  = nil
+ local popupDragging = false
+ local popupDragStart = nil
+ local popupStartPos = nil
 
-	CmdPopup.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			popupDragging  = true
-			popupDragStart = input.Position
-			popupStartPos  = CmdPopup.Position
-		end
-	end)
-	CmdPopup.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			popupDragging = false
-		end
-	end)
-	UserInputService.InputChanged:Connect(function(input)
-		if popupDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-			local delta = input.Position - popupDragStart
-			CmdPopup.Position = UDim2.new(
-				popupStartPos.X.Scale, popupStartPos.X.Offset + delta.X,
-				popupStartPos.Y.Scale, popupStartPos.Y.Offset + delta.Y
-			)
-		end
-	end)
+ CmdPopup.InputBegan:Connect(function(input)
+ if input.UserInputType == Enum.UserInputType.MouseButton1 then
+ popupDragging = true
+ popupDragStart = input.Position
+ popupStartPos = CmdPopup.Position
+ end
+ end)
+ CmdPopup.InputEnded:Connect(function(input)
+ if input.UserInputType == Enum.UserInputType.MouseButton1 then
+ popupDragging = false
+ end
+ end)
+ UserInputService.InputChanged:Connect(function(input)
+ if popupDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+ local delta = input.Position - popupDragStart
+ CmdPopup.Position = UDim2.new(
+ popupStartPos.X.Scale, popupStartPos.X.Offset + delta.X,
+ popupStartPos.Y.Scale, popupStartPos.Y.Offset + delta.Y
+ )
+ end
+ end)
 end
 
 -- Header bar
 local PopupHeader = Instance.new("Frame")
-PopupHeader.Size             = UDim2.new(1, 0, 0, HEADER_H)
+PopupHeader.Size = UDim2.new(1, 0, 0, HEADER_H)
 PopupHeader.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-PopupHeader.BorderSizePixel  = 0
-PopupHeader.ZIndex           = 21
-PopupHeader.Parent           = CmdPopup
+PopupHeader.BorderSizePixel = 0
+PopupHeader.ZIndex = 21
+PopupHeader.Parent = CmdPopup
 
 do
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 6)
-	corner.Parent = PopupHeader
+ local corner = Instance.new("UICorner")
+ corner.CornerRadius = UDim.new(0, 6)
+ corner.Parent = PopupHeader
 end
 
 -- Patch bottom corners of header (UICorner rounds all four)
 local headerPatch = Instance.new("Frame")
-headerPatch.Size             = UDim2.new(1, 0, 0, 8)
-headerPatch.Position         = UDim2.new(0, 0, 1, -8)
+headerPatch.Size = UDim2.new(1, 0, 0, 8)
+headerPatch.Position = UDim2.new(0, 0, 1, -8)
 headerPatch.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-headerPatch.BorderSizePixel  = 0
-headerPatch.ZIndex           = 21
-headerPatch.Parent           = PopupHeader
+headerPatch.BorderSizePixel = 0
+headerPatch.ZIndex = 21
+headerPatch.Parent = PopupHeader
 
 local PopupTitle = Instance.new("TextLabel")
-PopupTitle.Size               = UDim2.new(1, -44, 1, 0)
-PopupTitle.Position           = UDim2.new(0, 12, 0, 0)
+PopupTitle.Size = UDim2.new(1, -44, 1, 0)
+PopupTitle.Position = UDim2.new(0, 12, 0, 0)
 PopupTitle.BackgroundTransparency = 1
-PopupTitle.Text               = "⌨  Command List"
-PopupTitle.TextColor3         = Color3.new(1, 1, 1)
-PopupTitle.TextSize           = 14
-PopupTitle.Font               = Enum.Font.GothamSemibold
-PopupTitle.TextXAlignment     = Enum.TextXAlignment.Left
-PopupTitle.ZIndex             = 22
-PopupTitle.Parent             = PopupHeader
+PopupTitle.Text = "⌨ Command List"
+PopupTitle.TextColor3 = Color3.new(1, 1, 1)
+PopupTitle.TextSize = 14
+PopupTitle.Font = Enum.Font.GothamSemibold
+PopupTitle.TextXAlignment = Enum.TextXAlignment.Left
+PopupTitle.ZIndex = 22
+PopupTitle.Parent = PopupHeader
 
 -- Close button (×)
 local PopupClose = Instance.new("TextButton")
-PopupClose.Size               = UDim2.new(0, 28, 0, 28)
-PopupClose.Position           = UDim2.new(1, -34, 0.5, -14)
-PopupClose.BackgroundColor3   = Color3.fromRGB(170, 0, 0)
-PopupClose.Text               = "✕"
-PopupClose.TextColor3         = Color3.new(1, 1, 1)
-PopupClose.TextSize           = 14
-PopupClose.Font               = Enum.Font.GothamSemibold
-PopupClose.BorderSizePixel    = 0
-PopupClose.ZIndex             = 22
-PopupClose.Parent             = PopupHeader
+PopupClose.Size = UDim2.new(0, 28, 0, 28)
+PopupClose.Position = UDim2.new(1, -34, 0.5, -14)
+PopupClose.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+PopupClose.Text = "✕"
+PopupClose.TextColor3 = Color3.new(1, 1, 1)
+PopupClose.TextSize = 14
+PopupClose.Font = Enum.Font.GothamSemibold
+PopupClose.BorderSizePixel = 0
+PopupClose.ZIndex = 22
+PopupClose.Parent = PopupHeader
 
 do
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 4)
-	corner.Parent = PopupClose
+ local corner = Instance.new("UICorner")
+ corner.CornerRadius = UDim.new(0, 4)
+ corner.Parent = PopupClose
 end
 
 PopupClose.MouseButton1Click:Connect(function()
-	CmdPopup.Visible = false
+ CmdPopup.Visible = false
 end)
 
 -- Scrolling body
 local PopupScroll = Instance.new("ScrollingFrame")
-PopupScroll.Size                 = UDim2.new(1, 0, 1, -(HEADER_H + FOOTER_H + 4))
-PopupScroll.Position             = UDim2.new(0, 0, 0, HEADER_H + 2)
+PopupScroll.Size = UDim2.new(1, 0, 1, -(HEADER_H + FOOTER_H + 4))
+PopupScroll.Position = UDim2.new(0, 0, 0, HEADER_H + 2)
 PopupScroll.BackgroundTransparency = 1
-PopupScroll.BorderSizePixel      = 0
-PopupScroll.ScrollBarThickness   = 4
+PopupScroll.BorderSizePixel = 0
+PopupScroll.ScrollBarThickness = 4
 PopupScroll.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
-PopupScroll.CanvasSize           = UDim2.new(0, 0, 0, #CMD_LIST * ROW_H)
-PopupScroll.ZIndex               = 21
-PopupScroll.Parent               = CmdPopup
+PopupScroll.CanvasSize = UDim2.new(0, 0, 0, #CMD_LIST * ROW_H)
+PopupScroll.ZIndex = 21
+PopupScroll.Parent = CmdPopup
 
 -- Populate rows
 for i, entry in ipairs(CMD_LIST) do
-	local isSeparator = entry.cmd == ""
+ local isSeparator = entry.cmd == ""
 
-	local row = Instance.new("Frame")
-	row.Size             = UDim2.new(1, -8, 0, ROW_H - 2)
-	row.Position         = UDim2.new(0, 4, 0, (i - 1) * ROW_H + 2)
-	row.BackgroundColor3 = isSeparator
-		and Color3.fromRGB(28, 28, 28)
-		or (i % 2 == 0 and Color3.fromRGB(28, 28, 28) or Color3.fromRGB(33, 33, 33))
-	row.BorderSizePixel  = 0
-	row.ZIndex           = 22
-	row.Parent           = PopupScroll
+ local row = Instance.new("Frame")
+ row.Size = UDim2.new(1, -8, 0, ROW_H - 2)
+ row.Position = UDim2.new(0, 4, 0, (i - 1) * ROW_H + 2)
+ row.BackgroundColor3 = isSeparator
+ and Color3.fromRGB(28, 28, 28)
+ or (i % 2 == 0 and Color3.fromRGB(28, 28, 28) or Color3.fromRGB(33, 33, 33))
+ row.BorderSizePixel = 0
+ row.ZIndex = 22
+ row.Parent = PopupScroll
 
-	do
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0, 4)
-		corner.Parent = row
-	end
+ do
+ local corner = Instance.new("UICorner")
+ corner.CornerRadius = UDim.new(0, 4)
+ corner.Parent = row
+ end
 
-	if isSeparator then
-		-- Section divider label
-		local sepLabel = Instance.new("TextLabel")
-		sepLabel.Size               = UDim2.new(1, -10, 1, 0)
-		sepLabel.Position           = UDim2.new(0, 8, 0, 0)
-		sepLabel.BackgroundTransparency = 1
-		sepLabel.Text               = entry.desc
-		sepLabel.TextColor3         = Color3.fromRGB(120, 120, 120)
-		sepLabel.TextSize           = 11
-		sepLabel.Font               = Enum.Font.Gotham
-		sepLabel.TextXAlignment     = Enum.TextXAlignment.Left
-		sepLabel.ZIndex             = 23
-		sepLabel.Parent             = row
-	else
-		-- Command name (left, highlighted)
-		local cmdLabel = Instance.new("TextLabel")
-		cmdLabel.Size               = UDim2.new(0.42, -4, 1, 0)
-		cmdLabel.Position           = UDim2.new(0, 10, 0, 0)
-		cmdLabel.BackgroundTransparency = 1
-		cmdLabel.Text               = entry.cmd
-		cmdLabel.TextColor3         = Color3.fromRGB(100, 200, 255)
-		cmdLabel.TextSize           = 12
-		cmdLabel.Font               = Enum.Font.GothamSemibold
-		cmdLabel.TextXAlignment     = Enum.TextXAlignment.Left
-		cmdLabel.ZIndex             = 23
-		cmdLabel.Parent             = row
+ if isSeparator then
+ -- Section divider label
+ local sepLabel = Instance.new("TextLabel")
+ sepLabel.Size = UDim2.new(1, -10, 1, 0)
+ sepLabel.Position = UDim2.new(0, 8, 0, 0)
+ sepLabel.BackgroundTransparency = 1
+ sepLabel.Text = entry.desc
+ sepLabel.TextColor3 = Color3.fromRGB(120, 120, 120)
+ sepLabel.TextSize = 11
+ sepLabel.Font = Enum.Font.Gotham
+ sepLabel.TextXAlignment = Enum.TextXAlignment.Left
+ sepLabel.ZIndex = 23
+ sepLabel.Parent = row
+ else
+ -- Command name (left, highlighted)
+ local cmdLabel = Instance.new("TextLabel")
+ cmdLabel.Size = UDim2.new(0.42, -4, 1, 0)
+ cmdLabel.Position = UDim2.new(0, 10, 0, 0)
+ cmdLabel.BackgroundTransparency = 1
+ cmdLabel.Text = entry.cmd
+ cmdLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+ cmdLabel.TextSize = 12
+ cmdLabel.Font = Enum.Font.GothamSemibold
+ cmdLabel.TextXAlignment = Enum.TextXAlignment.Left
+ cmdLabel.ZIndex = 23
+ cmdLabel.Parent = row
 
-		-- Description (right, muted)
-		local descLabel = Instance.new("TextLabel")
-		descLabel.Size              = UDim2.new(0.58, -10, 1, 0)
-		descLabel.Position          = UDim2.new(0.42, 4, 0, 0)
-		descLabel.BackgroundTransparency = 1
-		descLabel.Text              = entry.desc
-		descLabel.TextColor3        = Color3.fromRGB(190, 190, 190)
-		descLabel.TextSize          = 11
-		descLabel.Font              = Enum.Font.Gotham
-		descLabel.TextXAlignment    = Enum.TextXAlignment.Left
-		descLabel.ZIndex            = 23
-		descLabel.Parent            = row
-	end
+ -- Description (right, muted)
+ local descLabel = Instance.new("TextLabel")
+ descLabel.Size = UDim2.new(0.58, -10, 1, 0)
+ descLabel.Position = UDim2.new(0.42, 4, 0, 0)
+ descLabel.BackgroundTransparency = 1
+ descLabel.Text = entry.desc
+ descLabel.TextColor3 = Color3.fromRGB(190, 190, 190)
+ descLabel.TextSize = 11
+ descLabel.Font = Enum.Font.Gotham
+ descLabel.TextXAlignment = Enum.TextXAlignment.Left
+ descLabel.ZIndex = 23
+ descLabel.Parent = row
+ end
 end
 
 -- Footer hint
 local PopupFooter = Instance.new("TextLabel")
-PopupFooter.Size               = UDim2.new(1, -16, 0, FOOTER_H)
-PopupFooter.Position           = UDim2.new(0, 8, 1, -FOOTER_H - 2)
+PopupFooter.Size = UDim2.new(1, -16, 0, FOOTER_H)
+PopupFooter.Position = UDim2.new(0, 8, 1, -FOOTER_H - 2)
 PopupFooter.BackgroundTransparency = 1
-PopupFooter.Text               = "Type a command in the bar below  •  drag this window to move it"
-PopupFooter.TextColor3         = Color3.fromRGB(90, 90, 90)
-PopupFooter.TextSize           = 10
-PopupFooter.Font               = Enum.Font.Gotham
-PopupFooter.TextXAlignment     = Enum.TextXAlignment.Center
-PopupFooter.ZIndex             = 21
-PopupFooter.Parent             = CmdPopup
+PopupFooter.Text = "Type a command in the bar below • drag this window to move it"
+PopupFooter.TextColor3 = Color3.fromRGB(90, 90, 90)
+PopupFooter.TextSize = 10
+PopupFooter.Font = Enum.Font.Gotham
+PopupFooter.TextXAlignment = Enum.TextXAlignment.Center
+PopupFooter.ZIndex = 21
+PopupFooter.Parent = CmdPopup
 
 -- // ─────────────────────────────────────────────
 -- Command parser
 local function ParseCommand(raw)
-	local parts = {}
-	for word in raw:gmatch("%S+") do
-		table.insert(parts, word:lower())
-	end
-	if #parts == 0 then return end
+ local parts = {}
+ for word in raw:gmatch("%S+") do
+ table.insert(parts, word:lower())
+ end
+ if #parts == 0 then return end
 
-	local cmd = parts[1]
+ local cmd = parts[1]
 
-	-- BIND command: bind <toggle> <key>
-	if cmd == "bind" then
-		if #parts < 3 then
-			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
-			CmdFeedback.Text = "Usage: bind <toggle> <key>"
-			return
-		end
-		local toggleName = parts[2]
-		local keyName    = parts[3]
+ -- BIND command: bind
+ if cmd == "bind" then
+ if #parts < 3 then
+ CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+ CmdFeedback.Text = "Usage: bind "
+ return
+ end
+ local toggleName = parts[2]
+ local keyName = parts[3]
 
-		if not VALID_TOGGLES[toggleName] then
-			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
-			CmdFeedback.Text = "Unknown toggle: " .. toggleName
-			return
-		end
+ if not VALID_TOGGLES[toggleName] then
+ CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+ CmdFeedback.Text = "Unknown toggle: " .. toggleName
+ return
+ end
 
-		local keyCodePath = ResolveKeyCode(keyName)
-		if not keyCodePath then
-			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
-			CmdFeedback.Text = "Unknown key: " .. keyName
-			return
-		end
+ local keyCodePath = ResolveKeyCode(keyName)
+ if not keyCodePath then
+ CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+ CmdFeedback.Text = "Unknown key: " .. keyName
+ return
+ end
 
-		-- e.g. keyCodePath = "KeyCode.F"  → split to get the actual Enum value
-		local enumName = keyCodePath:match("KeyCode%.(.+)")
-		local ok, keyEnum = pcall(function()
-			return Enum.KeyCode[enumName]
-		end)
-		if not ok or not keyEnum then
-			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
-			CmdFeedback.Text = "Invalid key: " .. keyName
-			return
-		end
+ -- e.g. keyCodePath = "KeyCode.F" → split to get the actual Enum value
+ local enumName = keyCodePath:match("KeyCode%.(.+)")
+ local ok, keyEnum = pcall(function()
+ return Enum.KeyCode[enumName]
+ end)
+ if not ok or not keyEnum then
+ CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+ CmdFeedback.Text = "Invalid key: " .. keyName
+ return
+ end
 
-		-- Unbind previous if same toggle was already bound to another key
-		Binds[toggleName] = keyEnum
+ -- Unbind previous if same toggle was already bound to another key
+ Binds[toggleName] = keyEnum
 
-		CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
-		CmdFeedback.Text = "Bound " .. toggleName .. " → " .. keyName:upper()
-		return
-	end
+ CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
+ CmdFeedback.Text = "Bound " .. toggleName .. " → " .. keyName:upper()
+ return
+ end
 
-	-- UNBIND command: unbind <toggle>
-	if cmd == "unbind" then
-		if #parts < 2 then
-			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
-			CmdFeedback.Text = "Usage: unbind <toggle>"
-			return
-		end
-		local toggleName = parts[2]
-		if not VALID_TOGGLES[toggleName] then
-			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
-			CmdFeedback.Text = "Unknown toggle: " .. toggleName
-			return
-		end
-		if Binds[toggleName] then
-			Binds[toggleName] = nil
-			CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
-			CmdFeedback.Text = "Unbound " .. toggleName
-		else
-			CmdFeedback.TextColor3 = Color3.fromRGB(160, 160, 160)
-			CmdFeedback.Text = toggleName .. " has no bind"
-		end
-		return
-	end
+ -- UNBIND command: unbind
+ if cmd == "unbind" then
+ if #parts < 2 then
+ CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+ CmdFeedback.Text = "Usage: unbind "
+ return
+ end
+ local toggleName = parts[2]
+ if not VALID_TOGGLES[toggleName] then
+ CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+ CmdFeedback.Text = "Unknown toggle: " .. toggleName
+ return
+ end
+ if Binds[toggleName] then
+ Binds[toggleName] = nil
+ CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+ CmdFeedback.Text = "Unbound " .. toggleName
+ else
+ CmdFeedback.TextColor3 = Color3.fromRGB(160, 160, 160)
+ CmdFeedback.Text = toggleName .. " has no bind"
+ end
+ return
+ end
 
-	-- BINDS command: list all current binds
-	if cmd == "binds" then
-		local out = ""
-		for name, key in pairs(Binds) do
-			out = out .. name .. "=" .. tostring(key).." "
-		end
-		CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 255)
-		CmdFeedback.Text = out ~= "" and ("Binds: " .. out) or "No binds set"
-		return
-	end
+ -- BINDS command: list all current binds
+ if cmd == "binds" then
+ local out = ""
+ for name, key in pairs(Binds) do
+ out = out .. name .. "=" .. tostring(key).." "
+ end
+ CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 255)
+ CmdFeedback.Text = out ~= "" and ("Binds: " .. out) or "No binds set"
+ return
+ end
 
-	-- GET command: teleport to a gun model in the world
-	if cmd == "get" then
-		if #parts < 2 then
-			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
-			CmdFeedback.Text = "Usage: get <item>  (e.g. get uzi)"
-			return
-		end
 
-		-- Map of item keyword → exact workspace model name
-		local ITEM_MAP = {
-			["uzi"]   = "Uzi | $150",
-			["sawed"] = "Sawed Off | $150",
-			["ammo"]  = "Buy Ammo | $25",
-		}
 
-		-- Items where multiple copies exist in the world; pick the closest one.
-		local FIND_CLOSEST = {
-			["Buy Ammo | $25"] = true,
-		}
+ -- HELP command (alias)
+ if cmd == "help" then
+ CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 255)
+ CmdFeedback.Text = "type 'cmd' to open the command list"
+ return
+ end
 
-		local itemKey   = parts[2]:lower()
-		local modelName = ITEM_MAP[itemKey]
-		if not modelName then
-			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
-			CmdFeedback.Text = "Unknown item: " .. itemKey .. "  (try: uzi)"
-			return
-		end
+ -- CMD command: open the command list popup
+ if cmd == "cmd" then
+ CmdPopup.Visible = not CmdPopup.Visible
+ CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 255)
+ CmdFeedback.Text = CmdPopup.Visible and "Command list opened" or "Command list closed"
+ return
+ end
 
-		-- Search the whole workspace recursively.
-		-- For items in FIND_CLOSEST, collect every matching model and pick nearest.
-		local model
-		if FIND_CLOSEST[modelName] then
-			local hrpNow = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-			local bestDist = math.huge
-			for _, obj in pairs(workspace:GetDescendants()) do
-				if obj.Name == modelName then
-					local pos
-					if obj:IsA("Model") then
-						pos = obj.PrimaryPart and obj.PrimaryPart.Position
-							or (function()
-								for _, v in pairs(obj:GetDescendants()) do
-									if v:IsA("BasePart") then return v.Position end
-								end
-							end)()
-					elseif obj:IsA("BasePart") then
-						pos = obj.Position
-					end
-					if pos and hrpNow then
-						local d = (pos - hrpNow.Position).Magnitude
-						if d < bestDist then bestDist = d; model = obj end
-					end
-				end
-			end
-		else
-			model = workspace:FindFirstChild(modelName, true)
-		end
-		if not model then
-			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
-			CmdFeedback.Text = modelName .. " not found in workspace"
-			return
-		end
+ -- CHATENABLE command: re-enable Roblox chat window and input bar
+ if cmd == "chatenable" then
+ local TCS = game:GetService("TextChatService")
+ -- Enable chat window
+ local CWC = TCS:FindFirstChildOfClass("ChatWindowConfiguration")
+ if CWC then
+ CWC.Enabled = true
+ end
+ -- Enable chat input bar
+ local CIBC = TCS:FindFirstChildOfClass("ChatInputBarConfiguration")
+ if CIBC then
+ CIBC.Enabled = true
+ end
+ -- Legacy chat fallback
+ local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
+ if isLegacy then
+ pcall(function()
+ game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Chat").Enabled = true
+ end)
+ end
+ CmdFeedback.TextColor3 = Color3.fromRGB(80, 255, 120)
+ CmdFeedback.Text = "Chat enabled!"
+ return
+ end
 
-		-- Resolve the target position from the model
-		local targetPos
-		if model:IsA("Model") then
-			if model.PrimaryPart then
-				targetPos = model.PrimaryPart.Position
-			else
-				for _, v in pairs(model:GetDescendants()) do
-					if v:IsA("BasePart") then
-						targetPos = v.Position
-						break
-					end
-				end
-			end
-		elseif model:IsA("BasePart") then
-			targetPos = model.Position
-		end
-
-		if not targetPos then
-			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
-			CmdFeedback.Text = "Couldn't find position for " .. modelName
-			return
-		end
-
-		-- Make sure the player has a character
-		local character = LocalPlayer.Character
-		local hrp = character and character:FindFirstChild("HumanoidRootPart")
-		if not hrp then
-			CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
-			CmdFeedback.Text = "No character — respawn and try again"
-			return
-		end
-
-		-- Bypassed teleport with auto-retry until the tool appears in inventory
-		local destCFrame = CFrame.new(targetPos + Vector3.new(0, 4, 0))
-
-		-- Strip "| $price" suffix to get the bare tool name used inside Backpack
-		-- e.g. "Uzi | $150" → "Uzi",  "Sawed Off | $150" → "Sawed Off"
-		local baseName = (modelName:match("^(.-)%s*|") or modelName):match("^%s*(.-)%s*$")
-
-		local function toolInInventory()
-			local containers = { LocalPlayer.Backpack }
-			if LocalPlayer.Character then
-				table.insert(containers, LocalPlayer.Character)
-			end
-			for _, container in pairs(containers) do
-				for _, item in pairs(container:GetChildren()) do
-					if item:IsA("Tool") then
-						local n = item.Name
-						if n == modelName or n == baseName
-							or n:lower():find(baseName:lower(), 1, true) then
-							return true
-						end
-					end
-				end
-			end
-			return false
-		end
-
-		CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
-		CmdFeedback.Text = "Going to " .. modelName .. "..."
-		Notify("Get", "📦  Going to " .. modelName)
-
-		task.spawn(function()
-			-- "get ammo" teleports once and stops; other items retry up to 20 times.
-			local MAX_ATTEMPTS = (itemKey == "ammo") and 1 or 20
-			local attempt = 0
-
-			while attempt < MAX_ATTEMPTS and not toolInInventory() do
-				attempt = attempt + 1
-
-				-- TP Walk toward the LOCKED model only — live-track its position each step
-				-- so we stay focused on the exact instance found at command time.
-				do
-					local STEP_SPEED  = 180   -- studs per second
-					local ARRIVE_DIST = 0.5   -- land directly ON the model
-					local MAX_STEPS   = 400   -- hard cap so it can't loop forever
-					local finalPos    = nil   -- track where we stop so we can face it
-
-					for _ = 1, MAX_STEPS do
-						-- Re-read the model's live world position each frame (tracks if it moves)
-						local livePos
-						if model:IsA("Model") then
-							livePos = model.PrimaryPart and model.PrimaryPart.Position
-							if not livePos then
-								for _, v in pairs(model:GetDescendants()) do
-									if v:IsA("BasePart") then livePos = v.Position; break end
-								end
-							end
-						elseif model:IsA("BasePart") then
-							livePos = model.Position
-						end
-						if not livePos then break end -- model disappeared
-						finalPos = livePos
-						-- No y-offset: walk straight onto the model's position
-						local diff = livePos - hrp.Position
-						if diff.Magnitude <= ARRIVE_DIST then break end
-						hrp.CFrame = hrp.CFrame + diff.Unit * math.min(STEP_SPEED * 0.016, diff.Magnitude)
-						task.wait() -- one frame, same as Heartbeat in TP Walk
-					end
-
-					-- Snap HRP to face the model so the game registers the interaction
-					-- regardless of where the camera was pointing beforehand.
-					if finalPos then
-						local lookDir = (finalPos - hrp.Position)
-						if lookDir.Magnitude > 0.01 then
-							hrp.CFrame = CFrame.lookAt(hrp.Position, finalPos)
-						end
-					end
-				end
-				task.wait(0.05)
-
-				-- Fire the ProximityPrompt on the LOCKED model only (all get commands).
-				-- Disable the prompt immediately after so the game can't re-fire it
-				-- or accidentally trigger any other nearby prompt on the same frame.
-				local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
-				if prompt then
-					pcall(function()
-						prompt.MaxActivationDistance = 999
-						prompt.HoldDuration          = 0
-						prompt.RequiresLineOfSight   = false
-						prompt:InputHoldBegin()
-						task.wait(prompt.HoldDuration)
-						prompt:InputHoldEnd()
-						prompt.Enabled = false  -- immediately lock it out so nothing nearby re-triggers
-					end)
-				end
-
-				task.wait(0.3)
-
-				if attempt > 1 and not toolInInventory() then
-					CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
-					CmdFeedback.Text = "Retrying... (" .. attempt .. "/" .. MAX_ATTEMPTS .. ")"
-				end
-			end
-
-			if toolInInventory() then
-				CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
-				CmdFeedback.Text = "Grabbed " .. modelName .. "!"
-				Notify("Get", "✅  Grabbed " .. modelName)
-			else
-				CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
-				CmdFeedback.Text = "Failed after " .. MAX_ATTEMPTS .. " attempts"
-				Notify("Get", "❌  Could not grab " .. modelName)
-			end
-		end)
-		return
-	end
-
-	-- HELP command (alias)
-	if cmd == "help" then
-		CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 255)
-		CmdFeedback.Text = "type 'cmd' to open the command list"
-		return
-	end
-
-	-- CMD command: open the command list popup
-	if cmd == "cmd" then
-		CmdPopup.Visible = not CmdPopup.Visible
-		CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 255)
-		CmdFeedback.Text = CmdPopup.Visible and "Command list opened" or "Command list closed"
-		return
-	end
-
-	-- CHATENABLE command: re-enable Roblox chat window and input bar
-	if cmd == "chatenable" then
-		local TCS = game:GetService("TextChatService")
-		-- Enable chat window
-		local CWC = TCS:FindFirstChildOfClass("ChatWindowConfiguration")
-		if CWC then
-			CWC.Enabled = true
-		end
-		-- Enable chat input bar
-		local CIBC = TCS:FindFirstChildOfClass("ChatInputBarConfiguration")
-		if CIBC then
-			CIBC.Enabled = true
-		end
-		-- Legacy chat fallback
-		local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
-		if isLegacy then
-			pcall(function()
-				game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Chat").Enabled = true
-			end)
-		end
-		CmdFeedback.TextColor3 = Color3.fromRGB(80, 255, 120)
-		CmdFeedback.Text = "Chat enabled!"
-		return
-	end
-
-	CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
-	CmdFeedback.Text = "Unknown command: " .. cmd .. "  (try: cmd)"
+ CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+ CmdFeedback.Text = "Unknown command: " .. cmd .. " (try: cmd)"
 end
 
 -- Submit on Enter
 CmdBox.FocusLost:Connect(function(enterPressed)
-	if enterPressed then
-		ParseCommand(CmdBox.Text)
-		CmdBox.Text = ""
-	end
+ if enterPressed then
+ ParseCommand(CmdBox.Text)
+ CmdBox.Text = ""
+ end
 end)
 
 -- Listen for bind keystrokes globally (only when GUI not focused)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	-- Block binds if ANY text box is focused (chat bar, cmd box, any input field)
-	if UserInputService:GetFocusedTextBox() then return end
-	for toggleName, keyEnum in pairs(Binds) do
-		if input.KeyCode == keyEnum then
-			if toggleName == "keylock" then
-				-- Keylock: project every player's HumanoidRootPart to screen space
-				-- and pick whoever is closest to the mouse cursor.
-				-- No raycast = no distance limit, works through walls, any range.
-				local camera      = workspace.CurrentCamera
-				local mousePos    = UserInputService:GetMouseLocation()
-				local closestPlr  = nil
-				local closestDist = math.huge
-				for _, plr in pairs(Players:GetPlayers()) do
-					if plr ~= LocalPlayer and plr.Character then
-						local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-						if hrp then
-							local screenPos, onScreen = camera:WorldToScreenPoint(hrp.Position)
-							if onScreen then
-								local d = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-								if d < closestDist then
-									closestDist = d
-									closestPlr  = plr
-								end
-							end
-						end
-					end
-				end
-				if closestPlr then
-					-- Atomic swap: never set ENABLED = false so aimlock
-					-- stays hot the whole time while switching targets.
-					NAME_AIMLOCK_TARGET  = closestPlr
-					NAME_AIMLOCK_ENABLED = true
-					-- Sync UI so dropdown reflects the new target
-					NameAimlockLabel.Text         = "Name Aimlock: " .. closestPlr.Name
-					AimlockDropBtn.Text           = "▼  " .. closestPlr.Name
-					AimlockDropBtn.TextColor3     = Color3.fromRGB(255, 200, 50)
-					NameAimlockStatus.Text        = "Status: LOCKED"
-					NameAimlockStatus.TextColor3  = Color3.fromRGB(0, 200, 80)
-					Aiming.ShowFOV   = false
-					Aiming.FOV       = 9999
-					Settings.ShowFOV = false
-					Settings.FOV     = 9999
-					FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
-					FOVCircleToggle.Text             = "CursorLock Circle: Hidden"
-					Notify("Keylock", "[LOCKED] " .. closestPlr.Name)
-				end
-			else
-				FireToggle(toggleName)
-			end
-		end
-	end
+ -- Block binds if ANY text box is focused (chat bar, cmd box, any input field)
+ if UserInputService:GetFocusedTextBox() then return end
+ for toggleName, keyEnum in pairs(Binds) do
+ if input.KeyCode == keyEnum then
+ if toggleName == "keylock" then
+ -- Keylock: project every player's HumanoidRootPart to screen space
+ -- and pick whoever is closest to the mouse cursor.
+ -- No raycast = no distance limit, works through walls, any range.
+ local camera = workspace.CurrentCamera
+ local mousePos = UserInputService:GetMouseLocation()
+ local closestPlr = nil
+ local closestDist = math.huge
+ for _, plr in pairs(Players:GetPlayers()) do
+ if plr ~= LocalPlayer and plr.Character then
+ local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+ if hrp then
+ local screenPos, onScreen = camera:WorldToScreenPoint(hrp.Position)
+ if onScreen then
+ local d = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+ if d < closestDist then
+ closestDist = d
+ closestPlr = plr
+ end
+ end
+ end
+ end
+ end
+ if closestPlr then
+ -- Atomic swap: never set ENABLED = false so aimlock
+ -- stays hot the whole time while switching targets.
+ NAME_AIMLOCK_TARGET = closestPlr
+ NAME_AIMLOCK_ENABLED = true
+ -- Sync UI so dropdown reflects the new target
+ NameAimlockLabel.Text = "Name Aimlock: " .. closestPlr.Name
+ AimlockDropBtn.Text = "▼ " .. closestPlr.Name
+ AimlockDropBtn.TextColor3 = Color3.fromRGB(255, 200, 50)
+ NameAimlockStatus.Text = "Status: LOCKED"
+ NameAimlockStatus.TextColor3 = Color3.fromRGB(0, 200, 80)
+ Aiming.ShowFOV = false
+ Aiming.FOV = 9999
+ Settings.ShowFOV = false
+ Settings.FOV = 9999
+ FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+ FOVCircleToggle.Text = "CursorLock Circle: Hidden"
+ Notify("Keylock", "[LOCKED] " .. closestPlr.Name)
+ end
+ else
+ FireToggle(toggleName)
+ end
+ end
+ end
 end)
 
 -- Clear feedback after 4 seconds automatically
 local lastFeedbackTime = 0
 task.spawn(function()
-	while true do
-		task.wait(1)
-		if CmdFeedback.Text ~= "" then
-			lastFeedbackTime = lastFeedbackTime + 1
-			if lastFeedbackTime >= 4 then
-				CmdFeedback.Text = ""
-				lastFeedbackTime = 0
-			end
-		else
-			lastFeedbackTime = 0
-		end
-	end
+ while true do
+ task.wait(1)
+ if CmdFeedback.Text ~= "" then
+ lastFeedbackTime = lastFeedbackTime + 1
+ if lastFeedbackTime >= 4 then
+ CmdFeedback.Text = ""
+ lastFeedbackTime = 0
+ end
+ else
+ lastFeedbackTime = 0
+ end
+ end
 end)
 
-print("✅ Command Bar Loaded  |  try: bind aimlock f")
-
+print("✅ Command Bar Loaded | try: bind aimlock f")
 
 -- // ESP - Full Body Highlight + Classic Nametags
 _G.FriendColor = Color3.fromRGB(0, 0, 255)

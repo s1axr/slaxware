@@ -1208,6 +1208,7 @@ local _lastNameAimlockTarget = nil
   ["molotov"]={label="🔥 Molotov",mesh="rbxassetid://454823030",texture="rbxassetid://91135823000526"},
   ["brick"]  ={label="🧱 Brick",  texture="rbxassetid://8236335288"},
   ["usas"]   ={label="🔫 USAS-12",texture="rbxassetid://97657374427072"},
+  ["uzi" ]   ={label="🔫 Uzi    ",texture="rbxassetid://4529712484"},
  }
 
 
@@ -1371,6 +1372,7 @@ local CMD_LIST = {
  { cmd = "molotov", desc = "→ Scan workspace for molotovs" },
  { cmd = "brick",   desc = "→ Scan workspace for brick"     },
  { cmd = "usas",    desc = "→ Scan workspace for USAS-12"  },
+ { cmd = "uzi",     desc = "→ Scan workspace for Uzi"      },
  { cmd = "", desc = "── Item ESP ────────────────────────────────" },
  { cmd = "itemesp",  desc = "ESP all scannable items in world" },
  { cmd = "unitemesp",desc = "Remove item ESP"                  },
@@ -1972,7 +1974,7 @@ local function ParseCommand(raw)
   CmdFeedback.TextColor3=Color3.fromRGB(100,200,255);CmdFeedback.Text="🔍 Scanning...";Notify("ItemESP","🔍 Building ESP...")
   task.spawn(function()
    local function nId(s) return tostring(s):lower():gsub("%s+","") end
-   local CLR={money=Color3.fromRGB(255,215,0),grenade=Color3.fromRGB(80,200,80),flash=Color3.fromRGB(255,255,120),golf=Color3.fromRGB(255,150,50),ar15=Color3.fromRGB(200,80,80),molotov=Color3.fromRGB(255,100,30),brick=Color3.fromRGB(180,120,60),usas=Color3.fromRGB(150,100,255)}
+   local CLR={money=Color3.fromRGB(255,215,0),grenade=Color3.fromRGB(80,200,80),flash=Color3.fromRGB(255,255,120),golf=Color3.fromRGB(255,150,50),ar15=Color3.fromRGB(200,80,80),molotov=Color3.fromRGB(255,100,30),brick=Color3.fromRGB(180,120,60),usas=Color3.fromRGB(150,100,255),uzi=Color3.fromRGB(80,180,255)}
    local function addHL(tg,lbl,clr)
     local hl=Instance.new("Highlight");hl.Name="SlaxrItemESP";hl.FillColor=clr;hl.OutlineColor=clr;hl.FillTransparency=0.6;hl.OutlineTransparency=0;hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop;hl.Parent=tg;table.insert(ITEM_ESP_OBJECTS,hl)
     local anc;if tg:IsA("Model") then anc=tg.PrimaryPart;if not anc then for _,v in pairs(tg:GetDescendants()) do if v:IsA("BasePart") then anc=v;break end end end

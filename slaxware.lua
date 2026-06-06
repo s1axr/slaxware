@@ -1106,13 +1106,20 @@ local function SlaxHookCharacter(character)
  local hrp = character:WaitForChild("HumanoidRootPart", 10)
 
  -- LASTPOS: wait a couple frames for the game's own spawn logic to finish,
- -- then override the position
- if hrp and LASTPOS_ENABLED and LASTPOS_VALUE then
-  task.delay(0.15, function()
-   if character and character.Parent and hrp and hrp.Parent then
-    hrp.CFrame = LASTPOS_VALUE
+ -- then override the position using fresh references (avoids stale closure crash on fast resets)
+ if LASTPOS_ENABLED and LASTPOS_VALUE then
+  local savedPos = LASTPOS_VALUE -- snapshot value now in case it changes before delay fires
+  task.delay(0.25, function()
+   pcall(function()
+    local freshChar = LocalPlayer.Character
+    if not freshChar or not freshChar.Parent then return end
+    local freshHrp = freshChar:FindFirstChild("HumanoidRootPart")
+    if not freshHrp or not freshHrp.Parent then return end
+    -- Only teleport if this is still the same character spawn we hooked
+    if freshChar ~= character then return end
+    freshHrp.CFrame = savedPos
     Notify("Last Pos", "Teleported to last position")
-   end
+   end)
   end)
  end
 
@@ -1127,8 +1134,8 @@ local function SlaxHookCharacter(character)
   end
  end
 
- -- SAVEINVENTORY: watch for tools leaving the character (server stripping them on death)
- -- and immediately move them back, then fire the humanoid break so server saves
+ -- SAVEINVENTORY: guard against destroyed character during reset/death
+ local _saveInvBusy = false
  humanoid.Died:Connect(function()
   -- Save death CFrame for lastpos
   if hrp and hrp.Parent then
@@ -1136,21 +1143,32 @@ local function SlaxHookCharacter(character)
   end
 
   -- Saveinventory: equip a tool right before break joints so server saves it
-  if SAVEINVENTORY_ENABLED then
+  if SAVEINVENTORY_ENABLED and not _saveInvBusy then
+   _saveInvBusy = true
    task.spawn(function()
+    -- Bail immediately if character is already gone/unparented
+    if not character or not character.Parent then _saveInvBusy = false; return end
+    if not humanoid or not humanoid.Parent then _saveInvBusy = false; return end
+
     -- If nothing equipped, pull from backpack first
     if not character:FindFirstChildOfClass("Tool") then
-     local bp_tool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
-     if bp_tool then
-      bp_tool.Parent = character
+     local bp = LocalPlayer:FindFirstChild("Backpack")
+     local bp_tool = bp and bp:FindFirstChildOfClass("Tool")
+     if bp_tool and character.Parent then
+      pcall(function() bp_tool.Parent = character end)
       task.wait(0.05)
      end
     end
-    -- Unequip triggers server-side inventory save in The Streets
-    if character:FindFirstChildOfClass("Tool") then
-     humanoid:UnequipTools()
+
+    -- Re-check everything still valid before UnequipTools
+    if character and character.Parent
+     and humanoid and humanoid.Parent
+     and character:FindFirstChildOfClass("Tool") then
+     pcall(function() humanoid:UnequipTools() end)
      task.wait(0.05)
     end
+
+    _saveInvBusy = false
     Notify("Save Inventory", "Inventory saved!")
    end)
   end

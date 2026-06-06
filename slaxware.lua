@@ -83,6 +83,13 @@ local NAME_AIMLOCK_ENABLED = false
 local CAMLOCK_TARGET = nil
 local CAMLOCK_ENABLED = false
 
+-- // New feature states
+local SAVEINVENTORY_ENABLED = false
+local LASTPOS_ENABLED = false
+local LASTPOS_VALUE = nil -- stores CFrame of last death position
+local NOSLOW_ENABLED = false
+local NOSLOW_CONNECTION = nil
+
 -- FOV Circle Drawing
 local Circle = Drawing.new("Circle")
 Circle.Color = Settings.FOVColor
@@ -1039,13 +1046,130 @@ RunService.Stepped:Connect(function()
  end
 end)
 
+-- // SAVEINVENTORY + LASTPOS + NOSLOW — standalone approach
+-- Hooks into every character spawn so commands work regardless of when they're enabled
+
+-- // NOSLOW — detosware method: hook TagSystem.has + Heartbeat loop
+local NOSLOW_TAGS = {
+ ["reloading"] = true,
+ ["ko"] = true,
+ ["action"] = true,
+ ["creatorslow"] = true,
+ ["gunslow"] = true,
+}
+
+-- Hook TagSystem.has so the game never "sees" slow tags on the local character
+local _tagSystemHooked = false
+local _oldTagHas = nil
+local function HookTagSystem()
+ if _tagSystemHooked then return end
+ pcall(function()
+  local RS = game:GetService("ReplicatedStorage")
+  local TagSystem = RS:FindFirstChild("TagSystem")
+  if TagSystem then
+   TagSystem = require(TagSystem)
+   if TagSystem and TagSystem.has then
+    _oldTagHas = TagSystem.has
+    TagSystem.has = function(object, tag)
+     if NOSLOW_ENABLED and object == LocalPlayer.Character and tag and NOSLOW_TAGS[tag:lower()] then
+      return nil -- spoof: tag doesn't exist
+     end
+     return _oldTagHas(object, tag)
+    end
+    _tagSystemHooked = true
+   end
+  end
+ end)
+end
+
+-- Heartbeat loop: destroy Action/slow children every frame when noslow is on
+RunService.Heartbeat:Connect(function()
+ if not NOSLOW_ENABLED then return end
+ local char = LocalPlayer.Character
+ if not char then return end
+ for _, child in ipairs(char:GetChildren()) do
+  if NOSLOW_TAGS[child.Name:lower()] then
+   pcall(function() child:Destroy() end)
+  end
+ end
+end)
+
+-- Hook TagSystem on load if already available, else retry when character spawns
+task.spawn(HookTagSystem)
 LocalPlayer.CharacterAdded:Connect(function()
+ task.wait(1)
+ HookTagSystem()
+end)
+
+local function SlaxHookCharacter(character)
+ local humanoid = character:WaitForChild("Humanoid", 10)
+ local hrp = character:WaitForChild("HumanoidRootPart", 10)
+
+ -- LASTPOS: wait a couple frames for the game's own spawn logic to finish,
+ -- then override the position
+ if hrp and LASTPOS_ENABLED and LASTPOS_VALUE then
+  task.delay(0.15, function()
+   if character and character.Parent and hrp and hrp.Parent then
+    hrp.CFrame = LASTPOS_VALUE
+    Notify("Last Pos", "Teleported to last position")
+   end
+  end)
+ end
+
+ if not humanoid then return end
+
+ -- NOSLOW: initial clear of any slow tags already present on spawn
+ if NOSLOW_ENABLED then
+  for _, child in pairs(character:GetChildren()) do
+   if NOSLOW_TAGS[child.Name:lower()] then
+    pcall(function() child:Destroy() end)
+   end
+  end
+ end
+
+ -- SAVEINVENTORY: watch for tools leaving the character (server stripping them on death)
+ -- and immediately move them back, then fire the humanoid break so server saves
+ humanoid.Died:Connect(function()
+  -- Save death CFrame for lastpos
+  if hrp and hrp.Parent then
+   LASTPOS_VALUE = hrp.CFrame
+  end
+
+  -- Saveinventory: equip a tool right before break joints so server saves it
+  if SAVEINVENTORY_ENABLED then
+   task.spawn(function()
+    -- If nothing equipped, pull from backpack first
+    if not character:FindFirstChildOfClass("Tool") then
+     local bp_tool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+     if bp_tool then
+      bp_tool.Parent = character
+      task.wait(0.05)
+     end
+    end
+    -- Unequip triggers server-side inventory save in The Streets
+    if character:FindFirstChildOfClass("Tool") then
+     humanoid:UnequipTools()
+     task.wait(0.05)
+    end
+    Notify("Save Inventory", "Inventory saved!")
+   end)
+  end
+ end)
+end
+
+LocalPlayer.CharacterAdded:Connect(function(character)
  if NOCLIP_ENABLED then
   NOCLIP_ENABLED = false
   NoclipToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
   NoclipToggle.Text = "Noclip: Disabled"
  end
+ SlaxHookCharacter(character)
 end)
+
+-- Hook current character too in case script loads mid-game
+if LocalPlayer.Character then
+ task.spawn(SlaxHookCharacter, LocalPlayer.Character)
+end
 
 -- Redundant broken key listener removed to fix GUI initialization bugs
 
@@ -1547,15 +1671,15 @@ local _lastNameAimlockTarget = nil
 local ITEM_ESP_ACTIVE=false;
 local ITEM_ESP_OBJECTS={}
 local GET_ITEMS={
- ["money"] ={label="💰 Money", mesh="rbxassetid://511726060",texture="rbxassetid://511726139"},
- ["grenade"]={label="💣 Grenade",mesh="rbxassetid://436966955",texture="rbxassetid://436966973"},
- ["flash"] ={label="💥 Flash", mesh="rbxassetid://454819719",texture="rbxassetid://454819722"},
- ["golf"] ={label="⛳ Golf", mesh="rbxassetid://441573384",texture="rbxassetid://441573394"},
- ["ar15"] ={label="🔫 AR15", mesh="rbxassetid://137762422011047"},
- ["molotov"]={label="🔥 Molotov",mesh="rbxassetid://454823030",texture="rbxassetid://91135823000526"},
- ["brick"] ={label="🧱 Brick", texture="rbxassetid://8236335288"},
- ["usas"] ={label="🔫 USAS-12",texture="rbxassetid://97657374427072"},
- ["uzi"]  ={label="🔫 Uzi ",texture="rbxassetid://4529712484"},
+ ["money"] ={label="💰 Money",   mesh="rbxassetid://511726060",  texture="rbxassetid://511726139", names={"Money","Cash","Dollar","cash","money"}},
+ ["grenade"]={label="💣 Grenade", mesh="rbxassetid://436966955",  texture="rbxassetid://436966973", names={"Grenade","grenade","Frag"}},
+ ["flash"] ={label="💥 Flash",   mesh="rbxassetid://454819719",  texture="rbxassetid://454819722", names={"Flashbang","Flash","flashbang"}},
+ ["golf"] ={label="⛳ Golf",    mesh="rbxassetid://441573384",  texture="rbxassetid://441573394", names={"Golf Ball","GolfBall","golf ball"}},
+ ["ar15"] ={label="🔫 AR15",    mesh="rbxassetid://137762422011047",                              names={"AR15","AR-15","ar15"}},
+ ["molotov"]={label="🔥 Molotov", mesh="rbxassetid://454823030",  texture="rbxassetid://91135823000526", names={"Molotov","molotov","Cocktail"}},
+ ["brick"] ={label="🧱 Brick",   texture="rbxassetid://8236335288",                               names={"Brick","brick"}},
+ ["usas"] ={label="🔫 USAS-12", texture="rbxassetid://97657374427072",                           names={"USAS","USAS-12","usas"}},
+ ["uzi"]  ={label="🔫 Uzi ",   texture="rbxassetid://4529712484",                               names={"Uzi","uzi","UZI"}},
 }
 
 -- Helper: map a simple key string to the Enum.KeyCode name
@@ -1721,6 +1845,10 @@ local function FireToggle(name)
    SetAimlockTarget(nil)
    Notify("KeyLock", "🔴 No target — cleared")
   end
+ elseif name == "reset" then
+  -- Reset character instantly
+  pcall(function() LocalPlayer.Character:FindFirstChildOfClass("Humanoid").Health = 0 end)
+  Notify("Reset", "💀 Character reset")
  end
 end
 
@@ -1734,6 +1862,7 @@ local VALID_TOGGLES = {
  ["tpwalk"] = true,
  ["fovvisible"] = true,
  ["keylock"] = true, -- mouse-target aimlock setter
+ ["reset"] = true,  -- reset character
 }
 
 -- -----------------------------------------------------
@@ -1776,6 +1905,14 @@ local CMD_LIST = {
  { cmd = "fovvisible", desc = "Show / hide the FOV circle" },
  { cmd = "keylock", desc = "Hover cursor on a player + press bind to lock aimlock on them" },
  { cmd = "esp {player}", desc = "Toggle ESP for player (or 'all', 'off')" },
+ { cmd = "", desc = "── Inventory & Movement ──────────────" },
+ { cmd = "saveinventory", desc = "Save tools on death so you respawn with them" },
+ { cmd = "lastpos", desc = "Teleport back to where you died on respawn" },
+ { cmd = "unlastpos", desc = "Disable last position teleport" },
+ { cmd = "noslow", desc = "Remove slow/action tags (no reload slow, etc.)" },
+ { cmd = "unnoslow", desc = "Disable noslow" },
+ { cmd = "", desc = "── Reset ─────────────────────────────" },
+ { cmd = "bind reset {key}", desc = "Bind a key to instantly reset your character" },
 }
 
 local ROW_H = 34
@@ -1992,13 +2129,38 @@ function ParseCommand(inputStr)
   return
  end
 
- -- CHATENABLE command: re-enable Roblox chat
+ -- CHATENABLE command: re-enable Roblox chat (CoreGui + TextChatService + legacy Chat)
  if cmd == "chatenable" then
+  -- Restore CoreGui chat bubble/bar visibility
   pcall(function()
    game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Chat, true)
   end)
+  -- Re-enable TextChatService chat window & send bar (modern chat)
+  pcall(function()
+   local tcs = game:GetService("TextChatService")
+   if tcs then
+    tcs.ChatWindowConfiguration.Enabled = true
+    tcs.ChatInputBarConfiguration.Enabled = true
+   end
+  end)
+  -- Re-enable legacy Chat service visibility
+  pcall(function()
+   game:GetService("Chat"):SetVisible(true)
+  end)
+  -- Re-enable PlayerGui chat frames if they were hidden
+  pcall(function()
+   local pg = LocalPlayer:WaitForChild("PlayerGui", 3)
+   if pg then
+    for _, gui in ipairs(pg:GetChildren()) do
+     if gui.Name == "Chat" or gui.Name == "BubbleChat" then
+      gui.Enabled = true
+     end
+    end
+   end
+  end)
   CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
-  CmdFeedback.Text = "Enabled Roblox Chat"
+  CmdFeedback.Text = "✅ Chat Re-Enabled"
+  Notify("Chat", "✅ Chat restored")
   return
  end
 
@@ -2583,75 +2745,98 @@ function ParseCommand(inputStr)
   Notify("ESP", "Scannable Item ESP: Active")
   -- Spawn scannable items search routine
   task.spawn(function()
+   local function nId(s) return tostring(s):lower():gsub("%s+","") end
    while ITEM_ESP_ACTIVE do
-    -- Clean up old drawings
+    -- Clean up old billboards from last scan
     for _, obj in ipairs(ITEM_ESP_OBJECTS) do
      pcall(function() obj:Destroy() end)
     end
     ITEM_ESP_OBJECTS = {}
 
-    -- Full recursive scans
-    for _, desc in ipairs(workspace:GetDescendants()) do
+    local seen = {} -- deduplicate: one billboard per root model/part
+    for itemKey, iDef in pairs(GET_ITEMS) do
      if not ITEM_ESP_ACTIVE then break end
-     local matchKey, matchDef = nil, nil
-     for k, def in pairs(GET_ITEMS) do
- 
-      local function nId(s) return tostring(s):lower():gsub("%s+","") end
-      local c = desc.ClassName
-      local m = def.mesh and nId(def.mesh)
-      local t = def.texture and nId(def.texture)
-      local isM = false
+
+     -- Exact same match function used by the get command
+     local function mI(o)
+      local c = o.ClassName
+      local m = iDef.mesh and nId(iDef.mesh)
+      local t = iDef.texture and nId(iDef.texture)
       if c == "SpecialMesh" or c == "FileMesh" then
-       isM = (m and nId(desc.MeshId) == m) or (t and nId(desc.TextureId) == t)
+       return (m and nId(o.MeshId) == m) or (t and nId(o.TextureId) == t)
       elseif c == "MeshPart" then
-       
-       isM = (m and nId(desc.MeshId) == m) or (t and nId(desc.TextureId) == t)
+       return (m and nId(o.MeshId) == m) or (t and nId(o.TextureId) == t)
       elseif c == "Texture" or c == "Decal" then
-       isM = t and nId(desc.Texture) == t
+       return t and nId(o.Texture) == t
       end
-      if isM then matchKey = k; matchDef = def; break end
+      -- Name-based fallback
+      if iDef.names and (o:IsA("Model") or o:IsA("BasePart") or o:IsA("Tool")) then
+       for _, n in ipairs(iDef.names) do
+        if o.Name == n then return true end
+       end
+      end
+      return false
      end
 
-     if matchKey and matchDef then
-      -- Locate parent base model
-      local parentModel = desc.Parent
-      while parentModel and parentModel ~= workspace do
-       if parentModel:IsA("Model") then break end
-       parentModel = parentModel.Parent
-      end
-      local basePart = (parentModel and parentModel:IsA("Model") and parentModel.PrimaryPart) 
-       or (desc:IsA("BasePart") and desc)
- 
-       or (desc.Parent and desc.Parent:IsA("BasePart") and desc.Parent)
+     for i, o in ipairs(workspace:GetDescendants()) do
+      if i % 200 == 0 then task.wait() end
+      if not ITEM_ESP_ACTIVE then break end
+      local ok, hit = pcall(mI, o)
+      if ok and hit then
+       -- Walk up to nearest Model ancestor (same as get command)
+       local a = o.Parent
+       while a and a ~= workspace do
+        if a:IsA("Model") then break end
+        a = a.Parent
+       end
+       local tg = (a and a ~= workspace and a:IsA("Model")) and a
+        or (o:IsA("BasePart") and o)
+        or (o.Parent and o.Parent:IsA("BasePart") and o.Parent)
 
-      if basePart then
-       pcall(function()
-        local Billboard = Instance.new("BillboardGui")
-        Billboard.Name = "SlaxItemESP"
-        Billboard.Adornee = basePart
-        Billboard.Size = UDim2.new(0, 150, 0, 40)
-        Billboard.StudsOffset = Vector3.new(0, 1.5, 0)
-        Billboard.AlwaysOnTop = true
-        
-        Billboard.Parent = basePart
+       if tg and not seen[tg] then
+        seen[tg] = true
+        -- Resolve adorn part
+        local adornPart
+        if tg:IsA("Model") then
+         adornPart = tg.PrimaryPart
+         if not adornPart then
+          for _, v in pairs(tg:GetDescendants()) do
+           if v:IsA("BasePart") then adornPart = v; break end
+          end
+         end
+        elseif tg:IsA("BasePart") then
+         adornPart = tg
+        end
 
-        local Label = Instance.new("TextLabel")
-        Label.Size = UDim2.new(1, 0, 1, 0)
-        Label.BackgroundTransparency = 1
-        Label.Text = matchDef.label
-        Label.TextColor3 = Color3.fromRGB(0, 255, 180)
-        Label.TextStrokeColor3 = Color3.new(0, 0, 0)
-        Label.TextStrokeTransparency = 0.3
-        Label.Font = Enum.Font.SourceSansBold
-        Label.TextSize = 13
-        Label.Parent = Billboard
+        if adornPart then
+         pcall(function()
+          local Billboard = Instance.new("BillboardGui")
+          Billboard.Name = "SlaxItemESP"
+          Billboard.Adornee = adornPart
+          Billboard.Size = UDim2.new(0, 160, 0, 40)
+          Billboard.StudsOffset = Vector3.new(0, 2, 0)
+          Billboard.AlwaysOnTop = true
+          Billboard.Parent = adornPart
 
-        table.insert(ITEM_ESP_OBJECTS, Billboard)
-       end)
+          local Label = Instance.new("TextLabel")
+          Label.Size = UDim2.new(1, 0, 1, 0)
+          Label.BackgroundTransparency = 1
+          Label.Text = iDef.label
+          Label.TextColor3 = Color3.fromRGB(0, 255, 180)
+          Label.TextStrokeColor3 = Color3.new(0, 0, 0)
+          Label.TextStrokeTransparency = 0.3
+          Label.Font = Enum.Font.SourceSansBold
+          Label.TextSize = 13
+          Label.Parent = Billboard
+
+          table.insert(ITEM_ESP_OBJECTS, Billboard)
+         end)
+        end
+       end
       end
      end
     end
-    task.wait(4.0) -- update interval rate
+    task.wait(4.0) -- refresh interval
    end
   end)
   return
@@ -2673,6 +2858,78 @@ function ParseCommand(inputStr)
   CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
   CmdFeedback.Text = "Item ESP Disabled"
   Notify("ESP", "Scannable Item ESP: Removed")
+  return
+ end
+
+ -- SAVEINVENTORY command: toggle saving tools on death
+ if cmd == "saveinventory" then
+  SAVEINVENTORY_ENABLED = not SAVEINVENTORY_ENABLED
+  if SAVEINVENTORY_ENABLED then
+   CmdFeedback.TextColor3 = Color3.fromRGB(0, 220, 80)
+   CmdFeedback.Text = "Save Inventory: ON"
+   Notify("Save Inventory", "🟢 Tools will be saved on death")
+  else
+   CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+   CmdFeedback.Text = "Save Inventory: OFF"
+   Notify("Save Inventory", "🔴 Turned OFF")
+  end
+  return
+ end
+
+ -- LASTPOS command: teleport back to death position on respawn
+ if cmd == "lastpos" then
+  LASTPOS_ENABLED = true
+  CmdFeedback.TextColor3 = Color3.fromRGB(0, 220, 80)
+  CmdFeedback.Text = "Last Pos: ON — will teleport on next respawn"
+  Notify("Last Pos", "🟢 Enabled — die to save a position")
+  return
+ end
+
+ -- UNLASTPOS command: disable last pos teleport
+ if cmd == "unlastpos" then
+  LASTPOS_ENABLED = false
+  CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+  CmdFeedback.Text = "Last Pos: OFF"
+  Notify("Last Pos", "🔴 Disabled")
+  return
+ end
+
+ -- NOSLOW command: remove slow/action tags every frame (detosware method)
+ if cmd == "noslow" then
+  if NOSLOW_ENABLED then
+   CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 180)
+   CmdFeedback.Text = "NoSlow is already ON (use unnoslow to disable)"
+   return
+  end
+  NOSLOW_ENABLED = true
+  HookTagSystem() -- attempt TagSystem hook (The Streets)
+  -- Clear any slow tags already present right now
+  local char = LocalPlayer.Character
+  if char then
+   for _, child in pairs(char:GetChildren()) do
+    if NOSLOW_TAGS[child.Name:lower()] then
+     pcall(function() child:Destroy() end)
+    end
+   end
+  end
+  CmdFeedback.TextColor3 = Color3.fromRGB(0, 220, 80)
+  CmdFeedback.Text = "NoSlow: ON"
+  Notify("NoSlow", "🟢 Slow tags blocked (Heartbeat + TagSystem)")
+  return
+ end
+
+ -- UNNOSLOW command: stop noslow
+ if cmd == "unnoslow" then
+  if not NOSLOW_ENABLED then
+   CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 180)
+   CmdFeedback.Text = "NoSlow is already OFF"
+   return
+  end
+  NOSLOW_ENABLED = false
+  if NOSLOW_CONNECTION then NOSLOW_CONNECTION:Disconnect() NOSLOW_CONNECTION = nil end
+  CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+  CmdFeedback.Text = "NoSlow: OFF"
+  Notify("NoSlow", "🔴 Disabled")
   return
  end
 

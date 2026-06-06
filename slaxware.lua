@@ -15,125 +15,192 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local ContextActionService = game:GetService("ContextActionService")
 
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
--- // ─────────────────────────────────────────────
+-- -----------------------------------------------------
 -- // AUTO-FIRE PROXIMITY PROMPTS
 -- // Fires any ProximityPrompt the moment the player
 -- // enters its activation radius — no key, no hold.
--- // ─────────────────────────────────────────────
+-- -----------------------------------------------------
 
 local function hookAutoFire(prompt)
  prompt.PromptShown:Connect(function()
- task.wait(0.05) -- one frame buffer so the game registers proximity
- pcall(function()
- prompt.HoldDuration = 0 -- instant, no hold needed
- prompt.RequiresLineOfSight = false
- prompt:InputHoldBegin()
- task.wait(prompt.HoldDuration) -- 0 = fires instantly
- prompt:InputHoldEnd()
- end)
+  task.wait(0.05) -- one frame buffer so the game registers proximity
+  pcall(function()
+   prompt.HoldDuration = 0 -- instant, no hold needed
+   prompt.RequiresLineOfSight = false
+   prompt:InputHoldBegin()
+   task.wait(prompt.HoldDuration) -- 0 = fires instantly
+   prompt:InputHoldEnd()
+  end)
  end)
 end
 
--- Hook all prompts already in the workspace
-for _, desc in pairs(workspace:GetDescendants()) do
- if desc:IsA("ProximityPrompt") then
- hookAutoFire(desc)
+for _, prompt in pairs(workspace:GetDescendants()) do
+ if prompt:IsA("ProximityPrompt") then
+  hookAutoFire(prompt)
  end
 end
 
--- Hook any prompts added later (e.g. when a new shop area loads)
-workspace.DescendantAdded:Connect(function(desc)
- if desc:IsA("ProximityPrompt") then
- hookAutoFire(desc)
+workspace.DescendantAdded:Connect(function(descendant)
+ if descendant:IsA("ProximityPrompt") then
+  hookAutoFire(descendant)
  end
 end)
 
--- // Load Aiming Library
-local Aiming = loadstring(game:HttpGet("https://raw.githubusercontent.com/Ezucii/new/main/sourceeeeeeeeeeeeee.lua"))()
+print("✅ Auto-Fire Proximity Prompts Active")
 
-Aiming.TeamCheck(false)
-Aiming.ShowFOV = true
-Aiming.FOV = 60
+-- -----------------------------------------------------
+-- // SILENT AIM & AIMLOCK SETTINGS
+-- -----------------------------------------------------
 
--- // Settings
-local Settings = {
- Enabled = true,
- FOV = 60,
- ShowFOV = true,
+getgenv().Settings = {
+ Enabled = false,
+ TeamCheck = false,
+ AliveCheck = true,
+ WallCheck = false,
+ Hitpart = "Head", -- "Head", "HumanoidRootPart", etc.
+ FOV = 150,
+ ShowFOV = false,
+ FOVColor = Color3.fromRGB(255, 255, 255),
+ FOVTrans = 0.5,
+ FOVThickness = 1,
+ FOVFilled = false,
 }
 
--- // ESP Toggle
--- // ESP state: "all" mode flag + per-player set
-local ESP_All = false
-local ESP_Players = {} -- [Player] = true when selected individually
+getgenv().Aiming = getgenv().Settings -- Alias for backward compatibility
 
--- // Check function
-local function CanSilentAim()
- if not (Aiming.Enabled and Aiming.Selected and Aiming.Selected ~= LocalPlayer and Aiming.SelectedPart) then
- return false
- end
+local Camera = workspace.CurrentCamera
 
- local Character = Aiming.Character(Aiming.Selected)
- if not Character then return false end
-
- local KOd = Character:FindFirstChild("BodyEffects") and Character.BodyEffects:FindFirstChild("K.O") and Character.BodyEffects["K.O"].Value
- local Grabbed = Character:FindFirstChild("GRABBING_CONSTRAINT") ~= nil
-
- return not (KOd or Grabbed)
-end
-
--- // Name Aimlock State (declared early so __index closure can see them)
-local NAME_AIMLOCK_ENABLED = false
+-- Global targets for Aimlock systems
 local NAME_AIMLOCK_TARGET = nil
+local NAME_AIMLOCK_ENABLED = false
 
--- // Mouse Hook
-local __index
-__index = hookmetamethod(game, "__index", function(t, k)
- -- // NAME AIMLOCK: bypasses FOV, distance, and camera direction entirely
- if t:IsA("Mouse") and (k == "Hit" or k == "Target") and NAME_AIMLOCK_ENABLED and NAME_AIMLOCK_TARGET then
- local char = NAME_AIMLOCK_TARGET.Character
- if char then
- local targetPart = char:FindFirstChild("HumanoidRootPart")
- or char:FindFirstChild("Head")
- or char:FindFirstChildWhichIsA("BasePart")
- if targetPart then
- if k == "Hit" then
- -- Predict movement so bullets lead the target
- return targetPart.CFrame + (targetPart.Velocity * 0.125)
- else
- return targetPart
- end
- end
- end
- end
+local CAMLOCK_TARGET = nil
+local CAMLOCK_ENABLED = false
 
- -- // Standard FOV aimlock (only runs when Name Aimlock is off)
- if t:IsA("Mouse") and (k == "Hit" or k == "Target") and CanSilentAim() and Settings.Enabled then
- local TargetPart = Aiming.SelectedPart
- local Predicted = TargetPart.CFrame + (TargetPart.Velocity * 0.125)
+-- FOV Circle Drawing
+local Circle = Drawing.new("Circle")
+Circle.Color = Settings.FOVColor
+Circle.Thickness = Settings.FOVThickness
+Circle.NumSides = 100
+Circle.Radius = Settings.FOV
+Circle.Filled = Settings.FOVFilled
+Circle.Visible = Settings.ShowFOV
 
- if k == "Hit" then
- return Predicted
- else
- return TargetPart
- end
- end
- return __index(t, k)
+-- Sync drawing properties on Heartbeat
+RunService.Heartbeat:Connect(function()
+ Circle.Radius = Settings.FOV
+ Circle.Visible = Settings.ShowFOV
+ Circle.Position = UserInputService:GetMouseLocation()
 end)
 
--- // GUI
+-- Helper: Check if target is alive & visible
+local function IsVisible(targetPart, character)
+ if not Settings.WallCheck then return true end
+ local raycastParams = RaycastParams.new()
+ raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+ raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, character}
+ raycastParams.IgnoreWater = true
+ 
+ local startPos = Camera.CFrame.Position
+ local direction = targetPart.Position - startPos
+ local result = workspace:Raycast(startPos, direction, raycastParams)
+ return result == nil
+end
+
+-- Fetch valid cursor-aim target based on FOV
+local function GetClosestPlayerToCursor()
+ local closestPlayer = nil
+ local shortestDistance = Settings.FOV
+ 
+ -- If a hard target lock is currently active, bypass cursor proximity checks
+ if NAME_AIMLOCK_ENABLED and NAME_AIMLOCK_TARGET then
+  local target = NAME_AIMLOCK_TARGET
+  if target and target.Character and target.Character:FindFirstChild(Settings.Hitpart) then
+   local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
+   if humanoid and humanoid.Health > 0 then
+    return target
+   end
+  end
+ end
+
+ for _, player in pairs(Players:GetPlayers()) do
+  if player ~= LocalPlayer and player.Character then
+   local hitpart = player.Character:FindFirstChild(Settings.Hitpart)
+   local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+   
+   if hitpart and humanoid and humanoid.Health > 0 then
+    if not (Settings.TeamCheck and player.TeamColor == LocalPlayer.TeamColor) then
+     local screenPos, onScreen = Camera:WorldToViewportPoint(hitpart.Position)
+     if onScreen then
+      local mouseLocation = UserInputService:GetMouseLocation()
+      local distance = (Vector2.new(screenPos.X, screenPos.Y) - mouseLocation).Magnitude
+      if distance < shortestDistance then
+       if IsVisible(hitpart, player.Character) then
+        shortestDistance = distance
+        closestPlayer = player
+       end
+      end
+     end
+    end
+   end
+  end
+ end
+ return closestPlayer
+end
+
+-- // SILENT AIM METHOD HOOKS
+local OldIndex = nil
+OldIndex = hookmetamethod(game, "__index", newcclosure(function(self, index)
+ if self == Mouse and tostring(index) == "Hit" and Settings.Enabled then
+  local target = GetClosestPlayerToCursor()
+  if target and target.Character then
+   local hitpart = target.Character:FindFirstChild(Settings.Hitpart)
+   if hitpart then
+    -- Apply tiny offset so shots align perfectly with velocity prediction
+    local predictedPosition = hitpart.CFrame + (hitpart.Velocity * 0.125)
+    return predictedPosition
+   end
+  end
+ end
+ return OldIndex(self, index)
+end))
+
+local OldNamecall = nil
+OldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+ local method = getnamecallmethod()
+ local args = {...}
+ if tostring(method) == "FindPartOnRayWithIgnoreList" and Settings.Enabled then
+  local target = GetClosestPlayerToCursor()
+  if target and target.Character then
+   local hitpart = target.Character:FindFirstChild(Settings.Hitpart)
+   if hitpart then
+    local predictedPosition = hitpart.CFrame + (hitpart.Velocity * 0.125)
+    -- Overwrite raycast logic to force hit registered on predicted CFrame
+    args[1] = Ray.new(Camera.CFrame.Position, (predictedPosition.Position - Camera.CFrame.Position).Unit * 1000)
+   end
+  end
+ end
+ return OldNamecall(self, unpack(args))
+end))
+
+-- -----------------------------------------------------
+-- // USER INTERFACE (SLAXWARE MAIN PANEL)
+-- -----------------------------------------------------
+
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "SilentAimGUI"
+ScreenGui.Name = "SlaxwareGUI"
 ScreenGui.ResetOnSpawn = false
-ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+ScreenGui.Parent = game:GetService("CoreGui")
 
 local Frame = Instance.new("Frame")
-Frame.Size = UDim2.new(0, 280, 0, 840)
-Frame.Position = UDim2.new(0.5, -140, 0.5, -285)
+Frame.Size = UDim2.new(0, 280, 0, 752)
+Frame.Position = UDim2.new(0.5, -140, 0.5, -376)
 Frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 Frame.BorderSizePixel = 0
 Frame.Active = true
@@ -143,55 +210,49 @@ Frame.Parent = ScreenGui
 
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 0, 40)
-Title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+Title.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+Title.BorderSizePixel = 0
 Title.Text = "slaxware"
-Title.TextColor3 = Color3.new(1, 1, 1)
-Title.TextSize = 16
+Title.TextColor3 = Color3.fromRGB(0, 180, 255)
+Title.TextSize = 18
 Title.Font = Enum.Font.GothamBold
 Title.Parent = Frame
 
-local dragging = false
-local dragInput
-local dragStart
-local startPos
-
-local function updateInput(input)
- local delta = input.Position - dragStart
- Frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+-- Simple drag script logic
+do
+ local dragging, dragInput, dragStart, startPos
+ Title.InputBegan:Connect(function(input)
+  if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+   dragging = true
+   dragStart = input.Position
+   startPos = Frame.Position
+   input.Changed:Connect(function()
+    if input.UserInputState == Enum.UserInputState.End then
+     dragging = false
+    end
+   end)
+  end
+ end)
+ Title.InputChanged:Connect(function(input)
+  if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+   dragInput = input
+  end
+ end)
+ UserInputService.InputChanged:Connect(function(input)
+  if input == dragInput and dragging then
+   local delta = input.Position - dragStart
+   Frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+  end
+ end)
 end
 
-Title.InputBegan:Connect(function(input)
- if input.UserInputType == Enum.UserInputType.MouseButton1 then
- dragging = true
- dragStart = input.Position
- startPos = Frame.Position
- end
-end)
-
-Title.InputChanged:Connect(function(input)
- if input.UserInputType == Enum.UserInputType.MouseMovement then
- dragInput = input
- end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
- if dragging and input == dragInput then
- updateInput(input)
- end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
- if input.UserInputType == Enum.UserInputType.MouseButton1 then
- dragging = false
- end
-end)
-
--- // AIMLOCK TOGGLE
+-- // TOGGLE BUTTONS
 local ToggleBtn = Instance.new("TextButton")
 ToggleBtn.Size = UDim2.new(0.9, 0, 0, 40)
 ToggleBtn.Position = UDim2.new(0.05, 0, 0, 50)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-ToggleBtn.Text = "Enabled CursorLock"
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+ToggleBtn.BorderSizePixel = 0
+ToggleBtn.Text = "Disabled CursorLock"
 ToggleBtn.TextColor3 = Color3.new(1, 1, 1)
 ToggleBtn.TextSize = 14
 ToggleBtn.Font = Enum.Font.GothamSemibold
@@ -200,103 +261,98 @@ ToggleBtn.Parent = Frame
 ToggleBtn.MouseButton1Click:Connect(function()
  Settings.Enabled = not Settings.Enabled
  if Settings.Enabled then
- ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
- ToggleBtn.Text = "Enabled CursorLock"
+  ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+  ToggleBtn.Text = "Enabled CursorLock"
  else
- ToggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
- ToggleBtn.Text = "Disabled CursorLock"
+  ToggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+  ToggleBtn.Text = "Disabled CursorLock"
  end
 end)
-
--- // AUTORESET TOGGLE
-local AUTO_RESET_ENABLED = true
 
 local AutoResetToggle = Instance.new("TextButton")
 AutoResetToggle.Size = UDim2.new(0.9, 0, 0, 40)
 AutoResetToggle.Position = UDim2.new(0.05, 0, 0, 100)
-AutoResetToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-AutoResetToggle.Text = "Auto Reset (10 HP): Enabled"
+AutoResetToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+AutoResetToggle.BorderSizePixel = 0
+AutoResetToggle.Text = "Auto Reset (10 HP): Disabled"
 AutoResetToggle.TextColor3 = Color3.new(1, 1, 1)
 AutoResetToggle.TextSize = 14
 AutoResetToggle.Font = Enum.Font.GothamSemibold
 AutoResetToggle.Parent = Frame
 
+local AUTO_RESET_ENABLED = false
 AutoResetToggle.MouseButton1Click:Connect(function()
  AUTO_RESET_ENABLED = not AUTO_RESET_ENABLED
  if AUTO_RESET_ENABLED then
- AutoResetToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
- AutoResetToggle.Text = "Auto Reset (10 HP): Enabled"
+  AutoResetToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+  AutoResetToggle.Text = "Auto Reset (10 HP): Enabled"
  else
- AutoResetToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
- AutoResetToggle.Text = "Auto Reset (10 HP): Disabled"
+  AutoResetToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+  AutoResetToggle.Text = "Auto Reset (10 HP): Disabled"
  end
 end)
 
--- // FOV SLIDER
+-- // FOV SLIDER CONTROL
 local FOVLabel = Instance.new("TextLabel")
 FOVLabel.Size = UDim2.new(0.9, 0, 0, 20)
 FOVLabel.Position = UDim2.new(0.05, 0, 0, 150)
 FOVLabel.BackgroundTransparency = 1
-FOVLabel.Text = "FOV: " .. math.floor(Settings.FOV)
-FOVLabel.TextColor3 = Color3.new(1, 1, 1)
-FOVLabel.TextSize = 14
+FOVLabel.Text = "FOV: " .. tostring(Settings.FOV)
+FOVLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+FOVLabel.TextSize = 12
 FOVLabel.Font = Enum.Font.Gotham
+FOVLabel.TextXAlignment = Enum.TextXAlignment.Left
 FOVLabel.Parent = Frame
 
 local FOVSlider = Instance.new("Frame")
-FOVSlider.Size = UDim2.new(0.9, 0, 0, 8)
+FOVSlider.Size = UDim2.new(0.9, 0, 0, 6)
 FOVSlider.Position = UDim2.new(0.05, 0, 0, 175)
-FOVSlider.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+FOVSlider.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 FOVSlider.BorderSizePixel = 0
 FOVSlider.Parent = Frame
 
 local FOVKnob = Instance.new("Frame")
 FOVKnob.Size = UDim2.new(0, 16, 0, 16)
-FOVKnob.Position = UDim2.new(0.5, -8, 0.5, -8)
-FOVKnob.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+local percent = (Settings.FOV - 10) / 790
+FOVKnob.Position = UDim2.new(percent, -8, 0.5, -8)
+FOVKnob.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
 FOVKnob.BorderSizePixel = 0
 FOVKnob.Parent = FOVSlider
 
-local fovDragging = false
-
-local function updateFOVSlider()
- local percent = math.clamp((Settings.FOV - 10) / 290, 0, 1)
- FOVKnob.Position = UDim2.new(percent, -8, 0.5, -8)
- FOVLabel.Text = "FOV: " .. math.floor(Settings.FOV)
- Aiming.FOV = Settings.FOV
+do
+ local uis = UserInputService
+ local active = false
+ FOVSlider.InputBegan:Connect(function(input)
+  if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+   active = true
+  end
+ end)
+ uis.InputEnded:Connect(function(input)
+  if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+   active = false
+  end
+ end)
+ uis.InputChanged:Connect(function(input)
+  if active and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+   local sizeX = FOVSlider.AbsoluteSize.X
+   local posX = FOVSlider.AbsolutePosition.X
+   local mouseX = uis:GetMouseLocation().X
+   local ratio = math.clamp((mouseX - posX) / sizeX, 0, 1)
+   FOVKnob.Position = UDim2.new(ratio, -8, 0.5, -8)
+   local val = math.floor(10 + (ratio * 790))
+   Settings.FOV = val
+   FOVLabel.Text = "FOV: " .. tostring(val)
+  end
+ end)
 end
 
-FOVSlider.InputBegan:Connect(function(input)
- if input.UserInputType == Enum.UserInputType.MouseButton1 then
- fovDragging = true
- end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
- if input.UserInputType == Enum.UserInputType.MouseButton1 then
- fovDragging = false
- end
-end)
-
-RunService.RenderStepped:Connect(function()
- if fovDragging then
- local mouseX = UserInputService:GetMouseLocation().X
- local sliderX = FOVSlider.AbsolutePosition.X
- local sliderWidth = FOVSlider.AbsoluteSize.X
- local percent = math.clamp((mouseX - sliderX) / sliderWidth, 0, 1)
- Settings.FOV = 10 + (percent * 290)
- updateFOVSlider()
- end
-end)
-
-updateFOVSlider()
-
--- // CursorLock TOGGLE
+-- // SHOW/HIDE FOV CIRCLE
 local FOVCircleToggle = Instance.new("TextButton")
 FOVCircleToggle.Size = UDim2.new(0.9, 0, 0, 40)
 FOVCircleToggle.Position = UDim2.new(0.05, 0, 0, 195)
-FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-FOVCircleToggle.Text = "CursorLock Circle: Visible"
+FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+FOVCircleToggle.BorderSizePixel = 0
+FOVCircleToggle.Text = "CursorLock Circle: Hidden"
 FOVCircleToggle.TextColor3 = Color3.new(1, 1, 1)
 FOVCircleToggle.TextSize = 14
 FOVCircleToggle.Font = Enum.Font.GothamSemibold
@@ -304,18 +360,17 @@ FOVCircleToggle.Parent = Frame
 
 FOVCircleToggle.MouseButton1Click:Connect(function()
  Settings.ShowFOV = not Settings.ShowFOV
- Aiming.ShowFOV = Settings.ShowFOV
  if Settings.ShowFOV then
- FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
- FOVCircleToggle.Text = "CursorLock Circle: Visible"
+  FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+  FOVCircleToggle.Text = "CursorLock Circle: Visible"
  else
- FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
- FOVCircleToggle.Text = "CursorLock Circle: Hidden"
+  FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+  FOVCircleToggle.Text = "CursorLock Circle: Hidden"
  end
 end)
 
--- // ESP DROPDOWN (multi-select)
-local ESPDropBtn = Instance.new("TextButton")
+-- // ESP SYSTEM DROPDOWN (UI Elements only)
+local ESPDropBtn = Instance.new("TextBox")
 ESPDropBtn.Size = UDim2.new(0.9, 0, 0, 40)
 ESPDropBtn.Position = UDim2.new(0.05, 0, 0, 245)
 ESPDropBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
@@ -324,6 +379,14 @@ ESPDropBtn.TextColor3 = Color3.new(1, 1, 1)
 ESPDropBtn.TextSize = 14
 ESPDropBtn.Font = Enum.Font.GothamSemibold
 ESPDropBtn.TextTruncate = Enum.TextTruncate.AtEnd
+ESPDropBtn.ClearTextOnFocus = true
+ESPDropBtn.PlaceholderText = "🔍 Search players..."
+ESPDropBtn.PlaceholderColor3 = Color3.fromRGB(220, 220, 220)
+do
+ local pad = Instance.new("UIPadding")
+ pad.PaddingLeft = UDim.new(0, 8)
+ pad.Parent = ESPDropBtn
+end
 ESPDropBtn.Parent = Frame
 
 local ESPDropFrame = Instance.new("ScrollingFrame")
@@ -346,43 +409,56 @@ local espDropOpen = false
 
 local function UpdateESPBtnLabel()
  if ESP_All then
- ESPDropBtn.Text = "ESP: All ▼"
- ESPDropBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+  ESPDropBtn.Text = "ESP: All ▼"
+  ESPDropBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
  else
- local count = 0
- for _ in pairs(ESP_Players) do count = count + 1 end
- if count == 0 then
- ESPDropBtn.Text = "ESP: None ▼"
- ESPDropBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
- elseif count == 1 then
- local name = ""
- for plr in pairs(ESP_Players) do name = plr.Name end
- ESPDropBtn.Text = "ESP: " .. name .. " ▼"
- ESPDropBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 0)
- else
- ESPDropBtn.Text = "ESP: " .. count .. " players ▼"
- ESPDropBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 0)
- end
+  local count = 0
+  for _ in pairs(ESP_Players) do count = count + 1 end
+  if count == 0 then
+   ESPDropBtn.Text = "ESP: None ▼"
+   ESPDropBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+  elseif count == 1 then
+   local name = ""
+   for plr in pairs(ESP_Players) do name = plr.Name end
+   ESPDropBtn.Text = "ESP: " .. name .. " ▼"
+   ESPDropBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 0)
+  else
+   ESPDropBtn.Text = "ESP: " .. count .. " players ▼"
+   ESPDropBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 0)
+  end
  end
 end
 
--- Helper: should this player have ESP?
+-- ESP Mode Booleans
+getgenv().ESP_All = false
+getgenv().ESP_Players = {}
+
 local function ShouldESP(player)
  if player == LocalPlayer then return false end
  return ESP_All or ESP_Players[player] == true
 end
 
-local function RefreshESPDropdown()
+local function RefreshESPDropdown(filterText)
  for _, child in pairs(ESPDropFrame:GetChildren()) do
- if child:IsA("TextButton") then child:Destroy() end
+  if child:IsA("TextButton") then child:Destroy() end
  end
 
  local entries = {}
  table.insert(entries, {label = "All Players", isAll = true})
+ 
+ local filter = filterText and filterText:lower() or ""
+ if filter:sub(1, 4) == "esp:" then filter = filter:sub(5) end
+ if filter:sub(1, 2) == "▼ " then filter = filter:sub(3) end
+ if filter:sub(1, 2) == "🔍 " then filter = filter:sub(3) end
+ filter = filter:match("^%s*(.-)%s*$") or ""
+
  for _, plr in pairs(Players:GetPlayers()) do
- if plr ~= LocalPlayer then
- table.insert(entries, {label = plr.Name .. " (" .. plr.DisplayName .. ")", player = plr, isAll = false})
- end
+  if plr ~= LocalPlayer then
+   local label = plr.Name .. " (" .. plr.DisplayName .. ")"
+   if filter == "" or plr.Name:lower():find(filter, 1, true) or plr.DisplayName:lower():find(filter, 1, true) then
+    table.insert(entries, {label = label, player = plr, isAll = false})
+   end
+  end
  end
 
  local rowH = 30
@@ -392,70 +468,87 @@ local function RefreshESPDropdown()
  ESPDropFrame.CanvasSize = UDim2.new(0, 0, 0, totalH)
 
  for i, entry in ipairs(entries) do
- local isSelected = entry.isAll and ESP_All or (not entry.isAll and entry.player and ESP_Players[entry.player])
+  local isSelected = entry.isAll and ESP_All or (not entry.isAll and entry.player and ESP_Players[entry.player])
 
- local btn = Instance.new("TextButton")
- btn.Size = UDim2.new(1, 0, 0, rowH)
- btn.BackgroundColor3 = isSelected and Color3.fromRGB(0, 100, 0) or Color3.fromRGB(45, 45, 45)
- btn.BorderSizePixel = 0
- btn.TextXAlignment = Enum.TextXAlignment.Left
- btn.LayoutOrder = i
- btn.ZIndex = 11
- btn.Font = Enum.Font.GothamSemibold
- btn.TextSize = 12
- btn.TextColor3 = Color3.new(1, 1, 1)
- btn.TextTruncate = Enum.TextTruncate.AtEnd
+  local btn = Instance.new("TextButton")
+  btn.Size = UDim2.new(1, 0, 0, rowH)
+  btn.BackgroundColor3 = isSelected and Color3.fromRGB(0, 100, 0) or Color3.fromRGB(45, 45, 45)
+  btn.BorderSizePixel = 0
+  btn.TextXAlignment = Enum.TextXAlignment.Left
+  btn.LayoutOrder = i
+  btn.ZIndex = 11
+  btn.Font = Enum.Font.GothamSemibold
+  btn.TextSize = 12
+  btn.TextColor3 = Color3.new(1, 1, 1)
+  btn.TextTruncate = Enum.TextTruncate.AtEnd
 
- local check = isSelected and "☑ " or "☐ "
- btn.Text = check .. entry.label
+  local check = isSelected and "☑ " or "☐ "
+  btn.Text = check .. entry.label
 
- do
- local pad = Instance.new("UIPadding")
- pad.PaddingLeft = UDim.new(0, 8)
- pad.Parent = btn
- end
- btn.Parent = ESPDropFrame
+  do
+   local pad = Instance.new("UIPadding")
+   pad.PaddingLeft = UDim.new(0, 8)
+   pad.Parent = btn
+  end
+  btn.Parent = ESPDropFrame
 
- btn.MouseEnter:Connect(function()
- local sel = entry.isAll and ESP_All or (not entry.isAll and entry.player and ESP_Players[entry.player])
- if not sel then btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60) end
- end)
- btn.MouseLeave:Connect(function()
- local sel = entry.isAll and ESP_All or (not entry.isAll and entry.player and ESP_Players[entry.player])
- btn.BackgroundColor3 = sel and Color3.fromRGB(0, 100, 0) or Color3.fromRGB(45, 45, 45)
- end)
+  btn.MouseEnter:Connect(function()
+   local sel = entry.isAll and ESP_All or (not entry.isAll and entry.player and ESP_Players[entry.player])
+   if not sel then btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60) end
+  end)
+  btn.MouseLeave:Connect(function()
+   local sel = entry.isAll and ESP_All or (not entry.isAll and entry.player and ESP_Players[entry.player])
+   btn.BackgroundColor3 = sel and Color3.fromRGB(0, 100, 0) or Color3.fromRGB(45, 45, 45)
+  end)
 
- btn.MouseButton1Click:Connect(function()
- if entry.isAll then
- ESP_All = not ESP_All
- if ESP_All then
- ESP_Players = {}
- end
- else
- if ESP_All then
- ESP_All = false
- ESP_Players = {}
- end
- if ESP_Players[entry.player] then
- ESP_Players[entry.player] = nil
- else
- ESP_Players[entry.player] = true
- end
- end
- UpdateESPBtnLabel()
- RefreshESPDropdown()
- end)
+  btn.MouseButton1Click:Connect(function()
+   if entry.isAll then
+    ESP_All = not ESP_All
+    if ESP_All then
+     ESP_Players = {}
+    end
+   else
+    if ESP_All then
+     ESP_All = false
+     ESP_Players = {}
+    end
+    if ESP_Players[entry.player] then
+     ESP_Players[entry.player] = nil
+    else
+     ESP_Players[entry.player] = true
+    end
+   end
+   UpdateESPBtnLabel()
+   RefreshESPDropdown(ESPDropBtn:IsFocused() and ESPDropBtn.Text or "")
+  end)
  end
 end
 
-ESPDropBtn.MouseButton1Click:Connect(function()
- espDropOpen = not espDropOpen
- if espDropOpen then
- RefreshESPDropdown()
+ESPDropBtn.Focused:Connect(function()
+ espDropOpen = true
+ RefreshESPDropdown("")
  ESPDropFrame.Visible = true
- else
- ESPDropFrame.Visible = false
+end)
+
+local espFiltering = false
+ESPDropBtn:GetPropertyChangedSignal("Text"):Connect(function()
+ if espFiltering then return end
+ if ESPDropBtn:IsFocused() then
+  espFiltering = true
+  RefreshESPDropdown(ESPDropBtn.Text)
+  espFiltering = false
  end
+end)
+
+ESPDropBtn.FocusLost:Connect(function(enterPressed)
+ task.delay(0.15, function()
+  if not espDropOpen then return end
+  if not ESPDropBtn:IsFocused() then
+   espDropOpen = false
+   ESPDropFrame.Visible = false
+   UpdateESPBtnLabel()
+  end
+ end)
 end)
 
 Players.PlayerAdded:Connect(function()
@@ -463,16 +556,13 @@ Players.PlayerAdded:Connect(function()
 end)
 Players.PlayerRemoving:Connect(function(plr)
  if ESP_Players[plr] then
- ESP_Players[plr] = nil
- UpdateESPBtnLabel()
+  ESP_Players[plr] = nil
+  UpdateESPBtnLabel()
  end
  if espDropOpen then RefreshESPDropdown() end
 end)
 
--- // TP WALK TOGGLE
-local TPWALK_ENABLED = false
-local TPWALK_SPEED = 50
-
+-- // TELEPORT WALK (TP WALK)
 local TPWalkToggle = Instance.new("TextButton")
 TPWalkToggle.Size = UDim2.new(0.9, 0, 0, 40)
 TPWalkToggle.Position = UDim2.new(0.05, 0, 0, 295)
@@ -481,98 +571,94 @@ TPWalkToggle.Text = "TP Walk: Disabled"
 TPWalkToggle.TextColor3 = Color3.new(1, 1, 1)
 TPWalkToggle.TextSize = 14
 TPWalkToggle.Font = Enum.Font.GothamSemibold
+TPWalkToggle.BorderSizePixel = 0
 TPWalkToggle.Parent = Frame
 
-TPWalkToggle.MouseButton1Click:Connect(function()
- TPWALK_ENABLED = not TPWALK_ENABLED
- if TPWALK_ENABLED then
- TPWalkToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
- TPWalkToggle.Text = "TP Walk: Enabled"
- else
- TPWalkToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
- TPWalkToggle.Text = "TP Walk: Disabled"
- end
-end)
-
--- // TP WALK SPEED SLIDER
 local TPWalkSpeedLabel = Instance.new("TextLabel")
 TPWalkSpeedLabel.Size = UDim2.new(0.9, 0, 0, 20)
 TPWalkSpeedLabel.Position = UDim2.new(0.05, 0, 0, 345)
 TPWalkSpeedLabel.BackgroundTransparency = 1
-TPWalkSpeedLabel.Text = "TP Walk Speed: " .. TPWALK_SPEED
-TPWalkSpeedLabel.TextColor3 = Color3.new(1, 1, 1)
-TPWalkSpeedLabel.TextSize = 14
+TPWalkSpeedLabel.Text = "TP Walk Speed: 15"
+TPWalkSpeedLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+TPWalkSpeedLabel.TextSize = 12
 TPWalkSpeedLabel.Font = Enum.Font.Gotham
+TPWalkSpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
 TPWalkSpeedLabel.Parent = Frame
 
 local TPWalkSlider = Instance.new("Frame")
-TPWalkSlider.Size = UDim2.new(0.9, 0, 0, 8)
+TPWalkSlider.Size = UDim2.new(0.9, 0, 0, 6)
 TPWalkSlider.Position = UDim2.new(0.05, 0, 0, 370)
-TPWalkSlider.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+TPWalkSlider.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 TPWalkSlider.BorderSizePixel = 0
 TPWalkSlider.Parent = Frame
 
 local TPWalkKnob = Instance.new("Frame")
 TPWalkKnob.Size = UDim2.new(0, 16, 0, 16)
-TPWalkKnob.Position = UDim2.new(0.5, -8, 0.5, -8)
-TPWalkKnob.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+getgenv().TPWALK_SPEED = 15
+local percentWalk = (TPWALK_SPEED - 5) / 145
+TPWalkKnob.Position = UDim2.new(percentWalk, -8, 0.5, -8)
+TPWalkKnob.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
 TPWalkKnob.BorderSizePixel = 0
 TPWalkKnob.Parent = TPWalkSlider
 
-local tpwalkDragging = false
-
-local function updateTPWalkSlider()
- local percent = math.clamp((TPWALK_SPEED - 10) / 190, 0, 1)
- TPWalkKnob.Position = UDim2.new(percent, -8, 0.5, -8)
- TPWalkSpeedLabel.Text = "TP Walk Speed: " .. math.floor(TPWALK_SPEED)
+do
+ local uis = UserInputService
+ local active = false
+ TPWalkSlider.InputBegan:Connect(function(input)
+  if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+   active = true
+  end
+ end)
+ uis.InputEnded:Connect(function(input)
+  if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+   active = false
+  end
+ end)
+ uis.InputChanged:Connect(function(input)
+  if active and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+   local sizeX = TPWalkSlider.AbsoluteSize.X
+   local posX = TPWalkSlider.AbsolutePosition.X
+   local mouseX = uis:GetMouseLocation().X
+   local ratio = math.clamp((mouseX - posX) / sizeX, 0, 1)
+   TPWalkKnob.Position = UDim2.new(ratio, -8, 0.5, -8)
+   local val = math.floor(5 + (ratio * 145))
+   TPWALK_SPEED = val
+   TPWalkSpeedLabel.Text = "TP Walk Speed: " .. tostring(val)
+  end
+ end)
 end
 
-TPWalkSlider.InputBegan:Connect(function(input)
- if input.UserInputType == Enum.UserInputType.MouseButton1 then
- tpwalkDragging = true
+getgenv().TPWALK_ENABLED = false
+TPWalkToggle.MouseButton1Click:Connect(function()
+ TPWALK_ENABLED = not TPWALK_ENABLED
+ if TPWALK_ENABLED then
+  TPWalkToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+  TPWalkToggle.Text = "TP Walk: Enabled"
+ else
+  TPWalkToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+  TPWalkToggle.Text = "TP Walk: Disabled"
  end
 end)
 
-UserInputService.InputEnded:Connect(function(input)
- if input.UserInputType == Enum.UserInputType.MouseButton1 then
- tpwalkDragging = false
- end
-end)
-
-RunService.RenderStepped:Connect(function()
- if tpwalkDragging then
- local mouseX = UserInputService:GetMouseLocation().X
- local sliderX = TPWalkSlider.AbsolutePosition.X
- local sliderWidth = TPWalkSlider.AbsoluteSize.X
- local percent = math.clamp((mouseX - sliderX) / sliderWidth, 0, 1)
- TPWALK_SPEED = 10 + (percent * 190)
- updateTPWalkSlider()
- end
-end)
-
-updateTPWalkSlider()
-
--- TP Walk logic
+-- TP Walk Loop
 RunService.Heartbeat:Connect(function()
  if not TPWALK_ENABLED then return end
  local character = LocalPlayer.Character
  if not character then return end
- local hrp = character:FindFirstChild("HumanoidRootPart")
  local humanoid = character:FindFirstChildOfClass("Humanoid")
- if not hrp or not humanoid then return end
- if humanoid.MoveDirection.Magnitude > 0 then
- hrp.CFrame = hrp.CFrame + humanoid.MoveDirection * (TPWALK_SPEED * 0.016)
+ local hrp = character:FindFirstChild("HumanoidRootPart")
+ if humanoid and hrp and humanoid.MoveDirection.Magnitude > 0 then
+  -- Project position slightly forward proportional to MoveDirection
+  hrp.CFrame = hrp.CFrame + humanoid.MoveDirection * (TPWALK_SPEED * 0.016)
  end
 end)
 
--- // CAMLOCK TOGGLE
-local CAMLOCK_ENABLED = false
-local CAMLOCK_TARGET = nil
-
+-- // CAMLOCK TARGET dropdown
 local CamlockToggle = Instance.new("TextButton")
 CamlockToggle.Size = UDim2.new(0.9, 0, 0, 40)
 CamlockToggle.Position = UDim2.new(0.05, 0, 0, 390)
 CamlockToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+CamlockToggle.BorderSizePixel = 0
 CamlockToggle.Text = "Camlock: Disabled"
 CamlockToggle.TextColor3 = Color3.new(1, 1, 1)
 CamlockToggle.TextSize = 14
@@ -584,14 +670,14 @@ TargetLabel.Size = UDim2.new(0.9, 0, 0, 20)
 TargetLabel.Position = UDim2.new(0.05, 0, 0, 440)
 TargetLabel.BackgroundTransparency = 1
 TargetLabel.Text = "Target: none"
-TargetLabel.TextColor3 = Color3.new(1, 1, 1)
-TargetLabel.TextSize = 13
+TargetLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+TargetLabel.TextSize = 12
 TargetLabel.Font = Enum.Font.Gotham
 TargetLabel.TextXAlignment = Enum.TextXAlignment.Left
 TargetLabel.Parent = Frame
 
 -- // CAMLOCK DROPDOWN
-local CamlockDropBtn = Instance.new("TextButton")
+local CamlockDropBtn = Instance.new("TextBox")
 CamlockDropBtn.Size = UDim2.new(0.9, 0, 0, 30)
 CamlockDropBtn.Position = UDim2.new(0.05, 0, 0, 465)
 CamlockDropBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
@@ -602,6 +688,9 @@ CamlockDropBtn.TextSize = 13
 CamlockDropBtn.Font = Enum.Font.Gotham
 CamlockDropBtn.TextXAlignment = Enum.TextXAlignment.Left
 CamlockDropBtn.TextTruncate = Enum.TextTruncate.AtEnd
+CamlockDropBtn.ClearTextOnFocus = true
+CamlockDropBtn.PlaceholderText = "🔍 Search player..."
+CamlockDropBtn.PlaceholderColor3 = Color3.fromRGB(120, 120, 120)
 do
  local pad = Instance.new("UIPadding")
  pad.PaddingLeft = UDim.new(0, 8)
@@ -627,16 +716,22 @@ CamlockDropLayout.Parent = CamlockDropFrame
 
 local camlockDropOpen = false
 
-local function RefreshCamlockDropdown()
+local function RefreshCamlockDropdown(filterText)
  for _, child in pairs(CamlockDropFrame:GetChildren()) do
- if child:IsA("TextButton") then child:Destroy() end
+  if child:IsA("TextButton") then child:Destroy() end
  end
  local entries = {}
  table.insert(entries, {label = "None", player = nil})
+ local filter = filterText and filterText:lower() or ""
+ if filter:sub(1, 2) == "▼ " then filter = filter:sub(3) end
+ if filter:sub(1, 2) == "🔍 " then filter = filter:sub(3) end
  for _, plr in pairs(Players:GetPlayers()) do
- if plr ~= LocalPlayer then
- table.insert(entries, {label = plr.Name .. " (" .. plr.DisplayName .. ")", player = plr})
- end
+  if plr ~= LocalPlayer then
+   local label = plr.Name .. " (" .. plr.DisplayName .. ")"
+   if filter == "" or plr.Name:lower():find(filter, 1, true) or plr.DisplayName:lower():find(filter, 1, true) then
+    table.insert(entries, {label = label, player = plr})
+   end
+  end
  end
  local rowH = 28
  local maxVisible = 5
@@ -644,50 +739,72 @@ local function RefreshCamlockDropdown()
  CamlockDropFrame.Size = UDim2.new(0.9, 0, 0, math.min(totalH, maxVisible * rowH))
  CamlockDropFrame.CanvasSize = UDim2.new(0, 0, 0, totalH)
  for i, entry in ipairs(entries) do
- local btn = Instance.new("TextButton")
- btn.Size = UDim2.new(1, 0, 0, rowH)
- btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
- btn.BorderSizePixel = 0
- btn.Text = entry.label
- btn.TextColor3 = Color3.new(1, 1, 1)
- btn.TextSize = 12
- btn.Font = Enum.Font.Gotham
- btn.TextXAlignment = Enum.TextXAlignment.Left
- btn.LayoutOrder = i
- btn.ZIndex = 11
- do
- local pad = Instance.new("UIPadding")
- pad.PaddingLeft = UDim.new(0, 8)
- pad.Parent = btn
- end
- btn.Parent = CamlockDropFrame
- btn.MouseEnter:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(65, 65, 65) end)
- btn.MouseLeave:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45) end)
- btn.MouseButton1Click:Connect(function()
- CAMLOCK_TARGET = entry.player
- if entry.player then
- CamlockDropBtn.Text = "▼ " .. entry.player.Name
- CamlockDropBtn.TextColor3 = Color3.new(1, 1, 1)
- TargetLabel.Text = "Target: " .. entry.player.Name
- else
- CamlockDropBtn.Text = "▼ Select Player..."
- CamlockDropBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
- TargetLabel.Text = "Target: none"
- end
- CamlockDropFrame.Visible = false
- camlockDropOpen = false
- end)
+  local btn = Instance.new("TextButton")
+  btn.Size = UDim2.new(1, 0, 0, rowH)
+  btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+  btn.BorderSizePixel = 0
+  btn.Text = entry.label
+  btn.TextColor3 = Color3.new(1, 1, 1)
+  btn.TextSize = 12
+  btn.Font = Enum.Font.Gotham
+  btn.TextXAlignment = Enum.TextXAlignment.Left
+  btn.LayoutOrder = i
+  btn.ZIndex = 11
+  do
+   local pad = Instance.new("UIPadding")
+   pad.PaddingLeft = UDim.new(0, 8)
+   pad.Parent = btn
+  end
+  btn.Parent = CamlockDropFrame
+  btn.MouseEnter:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(65, 65, 65) end)
+  btn.MouseLeave:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45) end)
+  btn.MouseButton1Click:Connect(function()
+   CAMLOCK_TARGET = entry.player
+   if entry.player then
+    CamlockDropBtn.Text = "▼ " .. entry.player.Name
+    CamlockDropBtn.TextColor3 = Color3.new(1, 1, 1)
+    TargetLabel.Text = "Target: " .. entry.player.Name
+   else
+    CamlockDropBtn.Text = "▼ Select Player..."
+    CamlockDropBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
+    TargetLabel.Text = "Target: none"
+   end
+   CamlockDropFrame.Visible = false
+   camlockDropOpen = false
+   CamlockDropBtn:ReleaseFocus()
+  end)
  end
 end
 
-CamlockDropBtn.MouseButton1Click:Connect(function()
- camlockDropOpen = not camlockDropOpen
- if camlockDropOpen then
- RefreshCamlockDropdown()
+CamlockDropBtn.Focused:Connect(function()
+ camlockDropOpen = true
+ RefreshCamlockDropdown("")
  CamlockDropFrame.Visible = true
- else
- CamlockDropFrame.Visible = false
+end)
+
+local camlockFiltering = false
+CamlockDropBtn:GetPropertyChangedSignal("Text"):Connect(function()
+ if camlockFiltering then return end
+ if CamlockDropBtn:IsFocused() then
+  camlockFiltering = true
+  RefreshCamlockDropdown(CamlockDropBtn.Text)
+  camlockFiltering = false
  end
+end)
+
+CamlockDropBtn.FocusLost:Connect(function(enterPressed)
+ task.delay(0.15, function()
+  if not camlockDropOpen then return end
+  if not CamlockDropBtn:IsFocused() then
+   camlockDropOpen = false
+   CamlockDropFrame.Visible = false
+   if CAMLOCK_TARGET then
+    CamlockDropBtn.Text = "▼ " .. CAMLOCK_TARGET.Name
+   else
+    CamlockDropBtn.Text = "▼ Select Player..."
+   end
+  end
+ end)
 end)
 
 Players.PlayerAdded:Connect(function()
@@ -695,10 +812,10 @@ Players.PlayerAdded:Connect(function()
 end)
 Players.PlayerRemoving:Connect(function(plr)
  if plr == CAMLOCK_TARGET then
- CAMLOCK_TARGET = nil
- TargetLabel.Text = "Target: none"
- CamlockDropBtn.Text = "▼ Select Player..."
- CamlockDropBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
+  CAMLOCK_TARGET = nil
+  TargetLabel.Text = "Target: none"
+  CamlockDropBtn.Text = "▼ Select Player..."
+  CamlockDropBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
  end
  if camlockDropOpen then RefreshCamlockDropdown() end
 end)
@@ -706,199 +823,207 @@ end)
 CamlockToggle.MouseButton1Click:Connect(function()
  CAMLOCK_ENABLED = not CAMLOCK_ENABLED
  if CAMLOCK_ENABLED then
- CamlockToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
- CamlockToggle.Text = "Camlock: Enabled"
+  CamlockToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+  CamlockToggle.Text = "Camlock: Enabled"
  else
- CamlockToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
- CamlockToggle.Text = "Camlock: Disabled"
+  CamlockToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+  CamlockToggle.Text = "Camlock: Disabled"
  end
 end)
 
--- Camlock logic
+-- Camera Lock Rotation Loop
 RunService.RenderStepped:Connect(function()
  if not CAMLOCK_ENABLED or not CAMLOCK_TARGET then return end
  local char = CAMLOCK_TARGET.Character
- if not char then return end
- local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
- if not head then return end
- local camera = workspace.CurrentCamera
- local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
- if not hrp then return end
- camera.CFrame = CFrame.new(camera.CFrame.Position, head.Position)
+ if char then
+  -- Aiming camera straight at target's selected hitpart
+  local part = char:FindFirstChild(Settings.Hitpart)
+  if part then
+   Camera.CFrame = CFrame.new(Camera.CFrame.Position, part.Position)
+  end
+ end
 end)
 
--- // FLY TOGGLE
-local FLY_ENABLED = false
-local FLY_SPEED = 25
-local flyBodyVelocity = nil
-local flyBodyGyro = nil
-local flyConnection = nil
-
+-- // FLY MODE SYSTEM
 local FlyToggle = Instance.new("TextButton")
 FlyToggle.Size = UDim2.new(0.9, 0, 0, 40)
 FlyToggle.Position = UDim2.new(0.05, 0, 0, 510)
 FlyToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+FlyToggle.BorderSizePixel = 0
 FlyToggle.Text = "Fly: Disabled"
 FlyToggle.TextColor3 = Color3.new(1, 1, 1)
 FlyToggle.TextSize = 14
 FlyToggle.Font = Enum.Font.GothamSemibold
 FlyToggle.Parent = Frame
 
-local function StartFly()
- local character = LocalPlayer.Character
- if not character then return end
- local hrp = character:FindFirstChild("HumanoidRootPart")
- if not hrp then return end
- local humanoid = character:FindFirstChildOfClass("Humanoid")
- if humanoid then humanoid.PlatformStand = true end
-
- flyBodyVelocity = Instance.new("BodyVelocity")
- flyBodyVelocity.Velocity = Vector3.zero
- flyBodyVelocity.MaxForce = Vector3.new(1e5, 1e5, 1e5)
- flyBodyVelocity.Parent = hrp
-
- flyBodyGyro = Instance.new("BodyGyro")
- flyBodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
- flyBodyGyro.P = 1e4
- flyBodyGyro.CFrame = hrp.CFrame
- flyBodyGyro.Parent = hrp
-
- flyConnection = RunService.RenderStepped:Connect(function()
- if not FLY_ENABLED then return end
- local camera = workspace.CurrentCamera
- local direction = Vector3.zero
- if UserInputService:IsKeyDown(Enum.KeyCode.W) then direction = direction + camera.CFrame.LookVector end
- if UserInputService:IsKeyDown(Enum.KeyCode.S) then direction = direction - camera.CFrame.LookVector end
- if UserInputService:IsKeyDown(Enum.KeyCode.A) then direction = direction - camera.CFrame.RightVector end
- if UserInputService:IsKeyDown(Enum.KeyCode.D) then direction = direction + camera.CFrame.RightVector end
- if UserInputService:IsKeyDown(Enum.KeyCode.Space) then direction = direction + Vector3.new(0, 1, 0) end
- if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then direction = direction - Vector3.new(0, 1, 0) end
- if direction.Magnitude > 0 then
- flyBodyVelocity.Velocity = direction.Unit * FLY_SPEED
- else
- flyBodyVelocity.Velocity = Vector3.zero
- end
- flyBodyGyro.CFrame = camera.CFrame
- end)
-end
-
-local function StopFly()
- if flyConnection then flyConnection:Disconnect() flyConnection = nil end
- if flyBodyVelocity then flyBodyVelocity:Destroy() flyBodyVelocity = nil end
- if flyBodyGyro then flyBodyGyro:Destroy() flyBodyGyro = nil end
- local character = LocalPlayer.Character
- if character then
- local humanoid = character:FindFirstChildOfClass("Humanoid")
- if humanoid then humanoid.PlatformStand = false end
- end
-end
-
--- // FLY SPEED SLIDER
 local FlySpeedLabel = Instance.new("TextLabel")
 FlySpeedLabel.Size = UDim2.new(0.9, 0, 0, 20)
 FlySpeedLabel.Position = UDim2.new(0.05, 0, 0, 558)
 FlySpeedLabel.BackgroundTransparency = 1
-FlySpeedLabel.Text = "Fly Speed: " .. math.floor(FLY_SPEED)
-FlySpeedLabel.TextColor3 = Color3.new(1, 1, 1)
-FlySpeedLabel.TextSize = 14
+FlySpeedLabel.Text = "Fly Speed: 50"
+FlySpeedLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+FlySpeedLabel.TextSize = 12
 FlySpeedLabel.Font = Enum.Font.Gotham
+FlySpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
 FlySpeedLabel.Parent = Frame
 
 local FlySpeedSlider = Instance.new("Frame")
-FlySpeedSlider.Size = UDim2.new(0.9, 0, 0, 8)
+FlySpeedSlider.Size = UDim2.new(0.9, 0, 0, 6)
 FlySpeedSlider.Position = UDim2.new(0.05, 0, 0, 583)
-FlySpeedSlider.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+FlySpeedSlider.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 FlySpeedSlider.BorderSizePixel = 0
 FlySpeedSlider.Parent = Frame
 
 local FlySpeedKnob = Instance.new("Frame")
 FlySpeedKnob.Size = UDim2.new(0, 16, 0, 16)
-FlySpeedKnob.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+getgenv().FLY_SPEED = 50
+local percentFly = (FLY_SPEED - 10) / 290
+FlySpeedKnob.Position = UDim2.new(percentFly, -8, 0.5, -8)
+FlySpeedKnob.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
 FlySpeedKnob.BorderSizePixel = 0
 FlySpeedKnob.Parent = FlySpeedSlider
 
-local flySpeedDragging = false
-
-local function updateFlySpeedSlider()
- local percent = math.clamp((FLY_SPEED - 5) / 195, 0, 1)
- FlySpeedKnob.Position = UDim2.new(percent, -8, 0.5, -8)
- FlySpeedLabel.Text = "Fly Speed: " .. math.floor(FLY_SPEED)
+do
+ local uis = UserInputService
+ local active = false
+ FlySpeedSlider.InputBegan:Connect(function(input)
+  if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+   active = true
+  end
+ end)
+ uis.InputEnded:Connect(function(input)
+  if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+   active = false
+  end
+ end)
+ uis.InputChanged:Connect(function(input)
+  if active and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+   local sizeX = FlySpeedSlider.AbsoluteSize.X
+   local posX = FlySpeedSlider.AbsolutePosition.X
+   local mouseX = uis:GetMouseLocation().X
+   local ratio = math.clamp((mouseX - posX) / sizeX, 0, 1)
+   FlySpeedKnob.Position = UDim2.new(ratio, -8, 0.5, -8)
+   local val = math.floor(10 + (ratio * 290))
+   FLY_SPEED = val
+   FlySpeedLabel.Text = "Fly Speed: " .. tostring(val)
+  end
+ end)
 end
 
-FlySpeedSlider.InputBegan:Connect(function(input)
- if input.UserInputType == Enum.UserInputType.MouseButton1 then
- flySpeedDragging = true
- end
-end)
+getgenv().FLY_ENABLED = false
+local flyConnection = nil
+local flySpeedVector = Vector3.new(0, 0, 0)
 
-UserInputService.InputEnded:Connect(function(input)
- if input.UserInputType == Enum.UserInputType.MouseButton1 then
- flySpeedDragging = false
- end
-end)
+local function StartFly()
+ local character = LocalPlayer.Character
+ if not character then return end
+ local hrp = character:FindFirstChild("HumanoidRootPart")
+ if not hrp then return end
 
-RunService.RenderStepped:Connect(function()
- if flySpeedDragging then
- local mouseX = UserInputService:GetMouseLocation().X
- local sliderX = FlySpeedSlider.AbsolutePosition.X
- local sliderWidth = FlySpeedSlider.AbsoluteSize.X
- local percent = math.clamp((mouseX - sliderX) / sliderWidth, 0, 1)
- FLY_SPEED = math.floor(5 + (percent * 195)) -- range 5 to 200
- updateFlySpeedSlider()
- end
-end)
+ -- Anchoring anti-gravity body velocities in script
+ local bv = Instance.new("BodyVelocity")
+ bv.Name = "SlaxFlyBV"
+ bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+ bv.Velocity = Vector3.new(0, 0, 0)
+ bv.Parent = hrp
 
-updateFlySpeedSlider()
+ local bg = Instance.new("BodyGyro")
+ bg.Name = "SlaxFlyBG"
+ bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+ bg.CFrame = Camera.CFrame
+ bg.Parent = hrp
+
+ local humanoid = character:FindFirstChildOfClass("Humanoid")
+ if humanoid then
+  humanoid.PlatformStand = true
+ end
+
+ flyConnection = RunService.RenderStepped:Connect(function()
+  local char = LocalPlayer.Character
+  if not char then return end
+  local root = char:FindFirstChild("HumanoidRootPart")
+  local gyro = root and root:FindFirstChild("SlaxFlyBG")
+  local vel = root and root:FindFirstChild("SlaxFlyBV")
+  if not root or not gyro or not vel then return end
+
+  gyro.CFrame = Camera.CFrame
+  local direction = Vector3.new(0, 0, 0)
+  
+  if UserInputService:IsKeyDown(Enum.KeyCode.W) then direction = direction + Camera.CFrame.LookVector end
+  if UserInputService:IsKeyDown(Enum.KeyCode.S) then direction = direction - Camera.CFrame.LookVector end
+  if UserInputService:IsKeyDown(Enum.KeyCode.A) then direction = direction - Camera.CFrame.RightVector end
+  if UserInputService:IsKeyDown(Enum.KeyCode.D) then direction = direction + Camera.CFrame.RightVector end
+  if UserInputService:IsKeyDown(Enum.KeyCode.Space) then direction = direction + Vector3.new(0, 1, 0) end
+  if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then direction = direction - Vector3.new(0, 1, 0) end
+
+  if direction.Magnitude > 0 then
+   vel.Velocity = direction.Unit * FLY_SPEED
+  else
+   vel.Velocity = Vector3.new(0, 0, 0)
+  end
+ end)
+end
+
+local function StopFly()
+ if flyConnection then flyConnection:Disconnect() flyConnection = nil end
+ local character = LocalPlayer.Character
+ if character then
+  local hrp = character:FindFirstChild("HumanoidRootPart")
+  if hrp then
+   local bv = hrp:FindFirstChild("SlaxFlyBV")
+   local bg = hrp:FindFirstChild("SlaxFlyBG")
+   if bv then bv:Destroy() end
+   if bg then bg:Destroy() end
+  end
+  local humanoid = character:FindFirstChildOfClass("Humanoid")
+  if humanoid then
+   humanoid.PlatformStand = false
+  end
+ end
+end
 
 FlyToggle.MouseButton1Click:Connect(function()
  FLY_ENABLED = not FLY_ENABLED
  if FLY_ENABLED then
- FlyToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
- FlyToggle.Text = "Fly: Enabled"
- StartFly()
+  FlyToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+  FlyToggle.Text = "Fly: Enabled"
+  StartFly()
  else
- FlyToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
- FlyToggle.Text = "Fly: Disabled"
- StopFly()
+  FlyToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+  FlyToggle.Text = "Fly: Disabled"
+  StopFly()
  end
 end)
 
+-- Re-enable platform state if character respawns while Fly toggled active
 LocalPlayer.CharacterAdded:Connect(function()
  if FLY_ENABLED then
- FLY_ENABLED = false
- FlyToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
- FlyToggle.Text = "Fly: Disabled"
- StopFly()
- end
- if CAMLOCK_ENABLED then
- CAMLOCK_ENABLED = false
- CamlockToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
- CamlockToggle.Text = "Camlock: Disabled"
+  task.wait(0.5)
+  StartFly()
  end
 end)
 
--- // NOCLIP TOGGLE
-local NOCLIP_ENABLED = false
-local RAINBOWHATS_ENABLED = false
-
+-- // NOCLIP CONTROL
 local NoclipToggle = Instance.new("TextButton")
 NoclipToggle.Size = UDim2.new(0.9, 0, 0, 40)
 NoclipToggle.Position = UDim2.new(0.05, 0, 0, 608)
 NoclipToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+NoclipToggle.BorderSizePixel = 0
 NoclipToggle.Text = "Noclip: Disabled"
 NoclipToggle.TextColor3 = Color3.new(1, 1, 1)
 NoclipToggle.TextSize = 14
 NoclipToggle.Font = Enum.Font.GothamSemibold
 NoclipToggle.Parent = Frame
 
+getgenv().NOCLIP_ENABLED = false
 NoclipToggle.MouseButton1Click:Connect(function()
  NOCLIP_ENABLED = not NOCLIP_ENABLED
  if NOCLIP_ENABLED then
- NoclipToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
- NoclipToggle.Text = "Noclip: Enabled"
+  NoclipToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+  NoclipToggle.Text = "Noclip: Enabled"
  else
- NoclipToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
- NoclipToggle.Text = "Noclip: Disabled"
+  NoclipToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+  NoclipToggle.Text = "Noclip: Disabled"
  end
 end)
 
@@ -908,28 +1033,23 @@ RunService.Stepped:Connect(function()
  local character = LocalPlayer.Character
  if not character then return end
  for _, part in pairs(character:GetDescendants()) do
- if part:IsA("BasePart") then
- part.CanCollide = false
- end
+  if part:IsA("BasePart") then
+   part.CanCollide = false
+  end
  end
 end)
 
 LocalPlayer.CharacterAdded:Connect(function()
  if NOCLIP_ENABLED then
- NOCLIP_ENABLED = false
- NoclipToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
- NoclipToggle.Text = "Noclip: Disabled"
+  NOCLIP_ENABLED = false
+  NoclipToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+  NoclipToggle.Text = "Noclip: Disabled"
  end
 end)
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
- if gameProcessed then return end
- if input.KeyCode == Enum.KeyCode.K then
- Frame.Visible = not Frame.Visible
- end
-end)
+-- Redundant broken key listener removed to fix GUI initialization bugs
 
-print("✅ Silent Aim GUI Loaded (K = Toggle GUI)")
+print("✅ SlaxWare Loaded | : = Command Bar | K = Toggle GUI")
 
 -- // AUTO RESET ON LOW HEALTH (Strong Version)
 local RESET_HEALTH_THRESHOLD = 10
@@ -947,7 +1067,7 @@ local function safeResetCharacter()
  if not humanoid then return end
 
  if humanoid.Health > RESET_HEALTH_THRESHOLD or humanoid.Health <= 0 then
- return
+  return
  end
 
  lastResetTime = currentTime
@@ -955,16 +1075,16 @@ local function safeResetCharacter()
 
  -- Primary reset method
  pcall(function()
- LocalPlayer:LoadCharacter()
+  LocalPlayer:LoadCharacter()
  end)
 
  -- Backup: Kill humanoid if LoadCharacter didn't work
  task.delay(0.5, function()
- pcall(function()
- if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
- LocalPlayer.Character:FindFirstChildOfClass("Humanoid").Health = 0
- end
- end)
+  pcall(function()
+   if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+    LocalPlayer.Character:FindFirstChildOfClass("Humanoid").Health = 0
+   end
+  end)
  end)
 end
 
@@ -992,7 +1112,7 @@ NameAimlockLabel.TextXAlignment = Enum.TextXAlignment.Left
 NameAimlockLabel.Parent = Frame
 
 -- // AIMLOCK DROPDOWN
-local AimlockDropBtn = Instance.new("TextButton")
+local AimlockDropBtn = Instance.new("TextBox")
 AimlockDropBtn.Size = UDim2.new(0.9, 0, 0, 32)
 AimlockDropBtn.Position = UDim2.new(0.05, 0, 0, 688)
 AimlockDropBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
@@ -1003,6 +1123,9 @@ AimlockDropBtn.TextSize = 13
 AimlockDropBtn.Font = Enum.Font.GothamSemibold
 AimlockDropBtn.TextXAlignment = Enum.TextXAlignment.Left
 AimlockDropBtn.TextTruncate = Enum.TextTruncate.AtEnd
+AimlockDropBtn.ClearTextOnFocus = true
+AimlockDropBtn.PlaceholderText = "🔍 Search player..."
+AimlockDropBtn.PlaceholderColor3 = Color3.fromRGB(120, 120, 120)
 do
  local pad = Instance.new("UIPadding")
  pad.PaddingLeft = UDim.new(0, 8)
@@ -1043,38 +1166,44 @@ local function SetAimlockTarget(plr)
  NAME_AIMLOCK_TARGET = plr
  NAME_AIMLOCK_ENABLED = false
  if plr then
- NAME_AIMLOCK_ENABLED = true
- NameAimlockLabel.Text = "Name Aimlock: " .. plr.Name
- AimlockDropBtn.Text = "▼ " .. plr.Name
- AimlockDropBtn.TextColor3 = Color3.fromRGB(255, 200, 50)
- NameAimlockStatus.Text = "Status: LOCKED"
- NameAimlockStatus.TextColor3 = Color3.fromRGB(0, 200, 80)
- -- Auto-disable FOV lock so name aimlock has full range
- Aiming.ShowFOV = false
- Aiming.FOV = 9999
- Settings.ShowFOV = false
- Settings.FOV = 9999
- FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
- FOVCircleToggle.Text = "CursorLock Circle: Hidden"
+  NAME_AIMLOCK_ENABLED = true
+  NameAimlockLabel.Text = "Name Aimlock: " .. plr.Name
+  AimlockDropBtn.Text = "▼ " .. plr.Name
+  AimlockDropBtn.TextColor3 = Color3.fromRGB(255, 200, 50)
+  NameAimlockStatus.Text = "Status: LOCKED"
+  NameAimlockStatus.TextColor3 = Color3.fromRGB(0, 200, 80)
+  -- Auto-disable FOV lock so name aimlock has full range
+  Aiming.ShowFOV = false
+  Aiming.FOV = 9999
+  Settings.ShowFOV = false
+  Settings.FOV = 9999
+  FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+  FOVCircleToggle.Text = "CursorLock Circle: Hidden"
  else
- NameAimlockLabel.Text = "Name Aimlock: none"
- AimlockDropBtn.Text = "▼ Select Player..."
- AimlockDropBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
- NameAimlockStatus.Text = "Status: inactive"
- NameAimlockStatus.TextColor3 = Color3.fromRGB(170, 0, 0)
+  NameAimlockLabel.Text = "Name Aimlock: none"
+  AimlockDropBtn.Text = "▼ Select Player..."
+  AimlockDropBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
+  NameAimlockStatus.Text = "Status: inactive"
+  NameAimlockStatus.TextColor3 = Color3.fromRGB(170, 0, 0)
  end
 end
 
-local function RefreshAimlockDropdown()
+local function RefreshAimlockDropdown(filterText)
  for _, child in pairs(AimlockDropFrame:GetChildren()) do
- if child:IsA("TextButton") then child:Destroy() end
+  if child:IsA("TextButton") then child:Destroy() end
  end
  local entries = {}
  table.insert(entries, {label = "None", player = nil})
+ local filter = filterText and filterText:lower() or ""
+ if filter:sub(1, 2) == "▼ " then filter = filter:sub(3) end
+ if filter:sub(1, 2) == "🔍 " then filter = filter:sub(3) end
  for _, plr in pairs(Players:GetPlayers()) do
- if plr ~= LocalPlayer then
- table.insert(entries, {label = plr.Name .. " (" .. plr.DisplayName .. ")", player = plr})
- end
+  if plr ~= LocalPlayer then
+   local label = plr.Name .. " (" .. plr.DisplayName .. ")"
+   if filter == "" or plr.Name:lower():find(filter, 1, true) or plr.DisplayName:lower():find(filter, 1, true) then
+    table.insert(entries, {label = label, player = plr})
+   end
+  end
  end
  local rowH = 28
  local maxVisible = 5
@@ -1082,48 +1211,70 @@ local function RefreshAimlockDropdown()
  AimlockDropFrame.Size = UDim2.new(0.9, 0, 0, math.min(totalH, maxVisible * rowH))
  AimlockDropFrame.CanvasSize = UDim2.new(0, 0, 0, totalH)
  for i, entry in ipairs(entries) do
- local btn = Instance.new("TextButton")
- btn.Size = UDim2.new(1, 0, 0, rowH)
- btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
- btn.BorderSizePixel = 0
- btn.Text = entry.label
- btn.TextColor3 = Color3.new(1, 1, 1)
- btn.TextSize = 12
- btn.Font = Enum.Font.GothamSemibold
- btn.TextXAlignment = Enum.TextXAlignment.Left
- btn.LayoutOrder = i
- btn.ZIndex = 11
- do
- local pad = Instance.new("UIPadding")
- pad.PaddingLeft = UDim.new(0, 8)
- pad.Parent = btn
- end
- btn.Parent = AimlockDropFrame
- btn.MouseEnter:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(70, 70, 40) end)
- btn.MouseLeave:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50) end)
- btn.MouseButton1Click:Connect(function()
- SetAimlockTarget(entry.player)
- AimlockDropFrame.Visible = false
- aimlockDropOpen = false
- end)
+  local btn = Instance.new("TextButton")
+  btn.Size = UDim2.new(1, 0, 0, rowH)
+  btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+  btn.BorderSizePixel = 0
+  btn.Text = entry.label
+  btn.TextColor3 = Color3.new(1, 1, 1)
+  btn.TextSize = 12
+  btn.Font = Enum.Font.GothamSemibold
+  btn.TextXAlignment = Enum.TextXAlignment.Left
+  btn.LayoutOrder = i
+  btn.ZIndex = 11
+  do
+   local pad = Instance.new("UIPadding")
+   pad.PaddingLeft = UDim.new(0, 8)
+   pad.Parent = btn
+  end
+  btn.Parent = AimlockDropFrame
+  btn.MouseEnter:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(70, 70, 40) end)
+  btn.MouseLeave:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50) end)
+  btn.MouseButton1Click:Connect(function()
+   SetAimlockTarget(entry.player)
+   AimlockDropFrame.Visible = false
+   aimlockDropOpen = false
+   AimlockDropBtn:ReleaseFocus()
+  end)
  end
 end
 
-AimlockDropBtn.MouseButton1Click:Connect(function()
- aimlockDropOpen = not aimlockDropOpen
- if aimlockDropOpen then
- RefreshAimlockDropdown()
+AimlockDropBtn.Focused:Connect(function()
+ aimlockDropOpen = true
+ RefreshAimlockDropdown("")
  AimlockDropFrame.Visible = true
- else
- AimlockDropFrame.Visible = false
+end)
+
+local aimlockFiltering = false
+AimlockDropBtn:GetPropertyChangedSignal("Text"):Connect(function()
+ if aimlockFiltering then return end
+ if AimlockDropBtn:IsFocused() then
+  aimlockFiltering = true
+  RefreshAimlockDropdown(AimlockDropBtn.Text)
+  aimlockFiltering = false
  end
+end)
+
+AimlockDropBtn.FocusLost:Connect(function(enterPressed)
+ task.delay(0.15, function()
+  if not aimlockDropOpen then return end
+  if not AimlockDropBtn:IsFocused() then
+   aimlockDropOpen = false
+   AimlockDropFrame.Visible = false
+   if NAME_AIMLOCK_TARGET then
+    AimlockDropBtn.Text = "▼ " .. NAME_AIMLOCK_TARGET.Name
+   else
+    AimlockDropBtn.Text = "▼ Select Player..."
+   end
+  end
+ end)
 end)
 
 -- Auto-clear Name Aimlock if the target leaves the game
 Players.PlayerRemoving:Connect(function(plr)
  if plr == NAME_AIMLOCK_TARGET then
- SetAimlockTarget(nil)
- NameAimlockStatus.Text = "Status: inactive (player left)"
+  SetAimlockTarget(nil)
+  NameAimlockStatus.Text = "Status: inactive (player left)"
  end
  if aimlockDropOpen then RefreshAimlockDropdown() end
 end)
@@ -1132,133 +1283,328 @@ Players.PlayerAdded:Connect(function()
  if aimlockDropOpen then RefreshAimlockDropdown() end
 end)
 
--- // ─────────────────────────────────────────────
--- // COMMAND BAR
--- // ─────────────────────────────────────────────
+-- -----------------------------------------------------
+-- // SLIDING COMMAND BAR STRIP (separate from main GUI)
+-- Slides up from the bottom on "/" and back down after submit
+-- -----------------------------------------------------
 
--- Separator line above command bar
-local CmdSeparator = Instance.new("Frame")
-CmdSeparator.Size = UDim2.new(0.9, 0, 0, 1)
-CmdSeparator.Position = UDim2.new(0.05, 0, 0, 768)
-CmdSeparator.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-CmdSeparator.BorderSizePixel = 0
-CmdSeparator.Parent = Frame
+-- Forward-declare ParseCommand so FocusLost can reference it
+local ParseCommand
 
--- Label above the box
-local CmdLabel = Instance.new("TextLabel")
-CmdLabel.Size = UDim2.new(0.9, 0, 0, 16)
-CmdLabel.Position = UDim2.new(0.05, 0, 0, 773)
-CmdLabel.BackgroundTransparency = 1
-CmdLabel.Text = "Command Bar"
-CmdLabel.TextColor3 = Color3.fromRGB(160, 160, 160)
-CmdLabel.TextSize = 11
-CmdLabel.Font = Enum.Font.Gotham
-CmdLabel.TextXAlignment = Enum.TextXAlignment.Left
-CmdLabel.Parent = Frame
+local CmdBarTweenInfo = TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 
--- The text input box
-local CmdBox = Instance.new("TextBox")
-CmdBox.Size = UDim2.new(0.9, 0, 0, 34)
-CmdBox.Position = UDim2.new(0.05, 0, 0, 792)
-CmdBox.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-CmdBox.BorderSizePixel = 1
-CmdBox.BorderColor3 = Color3.fromRGB(80, 80, 80)
-CmdBox.PlaceholderText = "e.g. bind aimlock f"
-CmdBox.PlaceholderColor3 = Color3.fromRGB(90, 90, 90)
-CmdBox.Text = ""
-CmdBox.TextColor3 = Color3.new(1, 1, 1)
-CmdBox.TextSize = 13
-CmdBox.Font = Enum.Font.Gotham
-CmdBox.ClearTextOnFocus = false
-CmdBox.ZIndex = 5
-CmdBox.Parent = Frame
+-- The strip frame (lives in ScreenGui, NOT inside the main Frame)
+local CmdBarFrame = Instance.new("Frame")
+CmdBarFrame.Name = "SlaxCmdBar"
+CmdBarFrame.Size = UDim2.new(0, 380, 0, 48)
+-- Slides in from the right edge
+local CMD_BAR_OPEN_POS   = UDim2.new(1, -400, 0.5, -24)
+local CMD_BAR_CLOSED_POS = UDim2.new(1,   20, 0.5, -24)
+CmdBarFrame.Position = CMD_BAR_CLOSED_POS
+CmdBarFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+CmdBarFrame.BackgroundTransparency = 0.08
+CmdBarFrame.BorderSizePixel = 0
+CmdBarFrame.ZIndex = 20
+CmdBarFrame.ClipsDescendants = true
+CmdBarFrame.Visible = true  -- always rendered; position hides it
+CmdBarFrame.Parent = ScreenGui
+
+do
+ local corner = Instance.new("UICorner")
+ corner.CornerRadius = UDim.new(0, 8)
+ corner.Parent = CmdBarFrame
+
+ local stroke = Instance.new("UIStroke")
+ stroke.Color = Color3.fromRGB(200, 0, 0)
+ stroke.Thickness = 1
+ stroke.Transparency = 0.5
+ stroke.Parent = CmdBarFrame
+end
+
+-- Prompt label on the left
+local CmdBarPrompt = Instance.new("TextLabel")
+CmdBarPrompt.Size = UDim2.new(0, 28, 1, 0)
+CmdBarPrompt.Position = UDim2.new(0, 0, 0, 0)
+CmdBarPrompt.BackgroundTransparency = 1
+CmdBarPrompt.Text = ":"
+CmdBarPrompt.TextColor3 = Color3.fromRGB(0, 180, 255)
+CmdBarPrompt.TextSize = 16
+CmdBarPrompt.Font = Enum.Font.GothamBold
+CmdBarPrompt.ZIndex = 21
+CmdBarPrompt.Parent = CmdBarFrame
+
+-- The actual text input
+local CmdBarBox = Instance.new("TextBox")
+CmdBarBox.Size = UDim2.new(1, -36, 0, 34)
+CmdBarBox.Position = UDim2.new(0, 28, 0.5, -17)
+CmdBarBox.BackgroundTransparency = 1
+CmdBarBox.PlaceholderText = "camlock / aimlock / esp {player}  | bind aimlock f"
+CmdBarBox.PlaceholderColor3 = Color3.fromRGB(90, 90, 90)
+CmdBarBox.Text = ""
+CmdBarBox.TextColor3 = Color3.new(1, 1, 1)
+CmdBarBox.TextSize = 13
+CmdBarBox.Font = Enum.Font.Gotham
+CmdBarBox.ClearTextOnFocus = false
+CmdBarBox.ZIndex = 21
+CmdBarBox.Parent = CmdBarFrame
 
 do
  local pad = Instance.new("UIPadding")
- pad.PaddingLeft = UDim.new(0, 8)
  pad.PaddingRight = UDim.new(0, 8)
- pad.Parent = CmdBox
+ pad.Parent = CmdBarBox
 end
 
--- Feedback label shown below the box
-local CmdFeedback = Instance.new("TextLabel")
-CmdFeedback.Size = UDim2.new(0.9, 0, 0, 14)
-CmdFeedback.Position = UDim2.new(0.05, 0, 0, 829)
-CmdFeedback.BackgroundTransparency = 1
-CmdFeedback.Text = ""
-CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
-CmdFeedback.TextSize = 11
-CmdFeedback.Font = Enum.Font.Gotham
-CmdFeedback.TextXAlignment = Enum.TextXAlignment.Left
-CmdFeedback.ZIndex = 5
-CmdFeedback.Parent = Frame
+-- Feedback label (appears just above the bar briefly)
+local MainCmdFeedback = Instance.new("TextLabel")
+MainCmdFeedback.Size = UDim2.new(1, -16, 0, 18)
+MainCmdFeedback.Position = UDim2.new(0, 8, 0, -20)
+MainCmdFeedback.BackgroundTransparency = 1
+MainCmdFeedback.Text = ""
+MainCmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
+MainCmdFeedback.TextSize = 11
+MainCmdFeedback.Font = Enum.Font.Gotham
+MainCmdFeedback.TextXAlignment = Enum.TextXAlignment.Left
+MainCmdFeedback.ZIndex = 21
+MainCmdFeedback.Parent = CmdBarFrame
+
+-- Alias so old code references still work
+local CmdBox = CmdBarBox
+local CmdFeedback = MainCmdFeedback
+
+-- Slide state
+local isCmdBarOpen = false
+local cmdBarCloseThread = nil
+
+local function SlideCmdBarIn()
+ if isCmdBarOpen then
+  -- Already open, just re-focus
+  task.defer(function() CmdBarBox:CaptureFocus() end)
+  return
+ end
+ isCmdBarOpen = true
+ if cmdBarCloseThread then task.cancel(cmdBarCloseThread) cmdBarCloseThread = nil end
+ CmdBarBox.Text = ""
+ MainCmdFeedback.Text = ""
+ TweenService:Create(CmdBarFrame, CmdBarTweenInfo, {Position = CMD_BAR_OPEN_POS}):Play()
+ CmdBarBox:CaptureFocus()
+ task.spawn(function() task.wait(0.05) CmdBarBox.Text = "" end)
+end
+
+local function SlideCmdBarOut()
+ if not isCmdBarOpen then return end
+ isCmdBarOpen = false
+ if cmdBarCloseThread then task.cancel(cmdBarCloseThread) cmdBarCloseThread = nil end
+ if CmdBarBox:IsFocused() then CmdBarBox:ReleaseFocus() end
+ TweenService:Create(CmdBarFrame, CmdBarTweenInfo, {Position = CMD_BAR_CLOSED_POS}):Play()
+end
+
+-- -----------------------------------------------------
+-- // SIDE QUICK-COMMAND BAR
+-- -----------------------------------------------------
+
+local SideFrame = Instance.new("Frame")
+SideFrame.Name = "SideCmdBarFrame"
+SideFrame.Size = UDim2.new(0, 300, 0, 70)
+SideFrame.Position = UDim2.new(1, 10, 0.5, -35) -- Hidden position off-screen
+SideFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+SideFrame.BackgroundTransparency = 0.15
+SideFrame.BorderSizePixel = 0
+SideFrame.ZIndex = 10
+SideFrame.Visible = false
+SideFrame.Parent = ScreenGui
+
+local SideCorner = Instance.new("UICorner")
+SideCorner.CornerRadius = UDim.new(0, 8)
+SideCorner.Parent = SideFrame
+
+local SideStroke = Instance.new("UIStroke")
+SideStroke.Color = Color3.fromRGB(80, 80, 80)
+SideStroke.Thickness = 1
+SideStroke.Parent = SideFrame
+
+local SideTitle = Instance.new("TextLabel")
+SideTitle.Size = UDim2.new(1, 0, 0, 20)
+SideTitle.Position = UDim2.new(0, 0, 0, 4)
+SideTitle.BackgroundTransparency = 1
+SideTitle.Text = "⚡ SLAXWARE QUICK COMMAND"
+SideTitle.TextColor3 = Color3.fromRGB(0, 180, 255)
+SideTitle.TextSize = 10
+SideTitle.Font = Enum.Font.GothamBold
+SideTitle.ZIndex = 11
+SideTitle.Parent = SideFrame
+
+local SideCmdBox = Instance.new("TextBox")
+SideCmdBox.Size = UDim2.new(0.9, 0, 0, 30)
+SideCmdBox.Position = UDim2.new(0.05, 0, 0, 24)
+SideCmdBox.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+SideCmdBox.BorderSizePixel = 0
+SideCmdBox.PlaceholderText = "camlock / aimlock {player}..."
+SideCmdBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 120)
+SideCmdBox.Text = ""
+SideCmdBox.TextColor3 = Color3.new(1, 1, 1)
+SideCmdBox.TextSize = 12
+SideCmdBox.Font = Enum.Font.Gotham
+SideCmdBox.ClearTextOnFocus = false
+SideCmdBox.ZIndex = 11
+SideCmdBox.Parent = SideFrame
+
+local CmdBoxCorner = Instance.new("UICorner")
+CmdBoxCorner.CornerRadius = UDim.new(0, 5)
+CmdBoxCorner.Parent = SideCmdBox
+
+local SidePad = Instance.new("UIPadding")
+SidePad.PaddingLeft = UDim.new(0, 8)
+SidePad.PaddingRight = UDim.new(0, 8)
+SidePad.Parent = SideCmdBox
+
+local SideCmdFeedback = Instance.new("TextLabel")
+SideCmdFeedback.Size = UDim2.new(0.9, 0, 0, 12)
+SideCmdFeedback.Position = UDim2.new(0.05, 0, 0, 55)
+SideCmdFeedback.BackgroundTransparency = 1
+SideCmdFeedback.Text = ""
+SideCmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
+SideCmdFeedback.TextSize = 9
+SideCmdFeedback.Font = Enum.Font.Gotham
+SideCmdFeedback.ZIndex = 11
+SideCmdFeedback.Parent = SideFrame
+
+local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+local sideOpenPos = UDim2.new(1, -310, 0.5, -35)
+local sideClosedPos = UDim2.new(1, 10, 0.5, -35)
+
+local isSideOpen = false
+local sideCloseThread = nil
+
+local function OpenSideCommandBar()
+ SideCmdBox.Text = ""
+ SideCmdFeedback.Text = ""
+ 
+ if isSideOpen then
+  SideCmdBox:CaptureFocus()
+  return
+ end
+ isSideOpen = true
+ SideFrame.Visible = true
+ 
+ if sideCloseThread then
+  task.cancel(sideCloseThread)
+  sideCloseThread = nil
+ end
+ 
+ local tween = TweenService:Create(SideFrame, tweenInfo, {Position = sideOpenPos})
+ tween:Play()
+ tween.Completed:Connect(function()
+  SideCmdBox:CaptureFocus()
+ end)
+end
+
+local function HideSideCommandBar()
+ if not isSideOpen then return end
+ isSideOpen = false
+ 
+ if sideCloseThread then
+  task.cancel(sideCloseThread)
+  sideCloseThread = nil
+ end
+ 
+ if SideCmdBox:HasFocus() then
+  SideCmdBox:ReleaseFocus()
+ end
+ 
+ local tween = TweenService:Create(SideFrame, tweenInfo, {Position = sideClosedPos})
+ tween:Play()
+ tween.Completed:Connect(function()
+  if not isSideOpen then
+   SideFrame.Visible = false
+  end
+ end)
+end
+
+SideCmdBox.FocusLost:Connect(function(enterPressed)
+ if enterPressed then
+  CmdFeedback = SideCmdFeedback
+  local txt = SideCmdBox.Text
+  SideCmdBox.Text = ""
+  -- Slide out immediately, then run command async so the thread never stalls
+  HideSideCommandBar()
+  task.spawn(ParseCommand, txt)
+ else
+  -- Lost focus without enter: slide out after short delay
+  sideCloseThread = task.delay(0.3, function()
+   sideCloseThread = nil -- BUG FIX
+   if not SideCmdBox:HasFocus() then
+    HideSideCommandBar()
+   end
+  end)
+ end
+end)
 
 -- Binds table: [toggleName] = KeyCode enum name string
 local Binds = {}
 
 -- Remembers the last Name Aimlock target so we can restore it when re-enabling
 local _lastNameAimlockTarget = nil
- local ITEM_ESP_ACTIVE=false; local ITEM_ESP_OBJECTS={}
- local GET_ITEMS={
-  ["money"]  ={label="💰 Money",  mesh="rbxassetid://511726060",texture="rbxassetid://511726139"},
-  ["grenade"]={label="💣 Grenade",mesh="rbxassetid://436966955",texture="rbxassetid://436966973"},
-  ["flash"]  ={label="💥 Flash",  mesh="rbxassetid://454819719",texture="rbxassetid://454819722"},
-  ["golf"]   ={label="⚳ Golf",  mesh="rbxassetid://441573384",texture="rbxassetid://441573394"},
-  ["ar15"]   ={label="🔫 AR15",   mesh="rbxassetid://137762422011047"},
-  ["molotov"]={label="🔥 Molotov",mesh="rbxassetid://454823030",texture="rbxassetid://91135823000526"},
-  ["brick"]  ={label="🧱 Brick",  texture="rbxassetid://8236335288"},
-  ["usas"]   ={label="🔫 USAS-12",texture="rbxassetid://97657374427072"},
-  ["uzi" ]   ={label="🔫 Uzi    ",texture="rbxassetid://4529712484"},
- }
-
+local ITEM_ESP_ACTIVE=false;
+local ITEM_ESP_OBJECTS={}
+local GET_ITEMS={
+ ["money"] ={label="💰 Money", mesh="rbxassetid://511726060",texture="rbxassetid://511726139"},
+ ["grenade"]={label="💣 Grenade",mesh="rbxassetid://436966955",texture="rbxassetid://436966973"},
+ ["flash"] ={label="💥 Flash", mesh="rbxassetid://454819719",texture="rbxassetid://454819722"},
+ ["golf"] ={label="⛳ Golf", mesh="rbxassetid://441573384",texture="rbxassetid://441573394"},
+ ["ar15"] ={label="🔫 AR15", mesh="rbxassetid://137762422011047"},
+ ["molotov"]={label="🔥 Molotov",mesh="rbxassetid://454823030",texture="rbxassetid://91135823000526"},
+ ["brick"] ={label="🧱 Brick", texture="rbxassetid://8236335288"},
+ ["usas"] ={label="🔫 USAS-12",texture="rbxassetid://97657374427072"},
+ ["uzi"]  ={label="🔫 Uzi ",texture="rbxassetid://4529712484"},
+}
 
 -- Helper: map a simple key string to the Enum.KeyCode name
 local function ResolveKeyCode(keyStr)
  -- Single letter A-Z
  if #keyStr == 1 and keyStr:match("^%a$") then
- return "KeyCode." .. keyStr:upper()
+  return "KeyCode." .. keyStr:upper()
  end
  -- F1-F12
  if keyStr:match("^[fF]%d%d?$") then
- return "KeyCode." .. keyStr:upper()
+  return "KeyCode." .. keyStr:upper()
  end
  -- Named keys mapping
  local named = {
- ["space"] = "KeyCode.Space",
- ["shift"] = "KeyCode.LeftShift",
- ["lshift"] = "KeyCode.LeftShift",
- ["rshift"] = "KeyCode.RightShift",
- ["ctrl"] = "KeyCode.LeftControl",
- ["lctrl"] = "KeyCode.LeftControl",
- ["rctrl"] = "KeyCode.RightControl",
- ["alt"] = "KeyCode.LeftAlt",
- ["lalt"] = "KeyCode.LeftAlt",
- ["ralt"] = "KeyCode.RightAlt",
- ["tab"] = "KeyCode.Tab",
- ["capslock"] = "KeyCode.CapsLock",
- ["enter"] = "KeyCode.Return",
- ["return"] = "KeyCode.Return",
- ["backspace"] = "KeyCode.Backspace",
- ["delete"] = "KeyCode.Delete",
- ["insert"] = "KeyCode.Insert",
- ["home"] = "KeyCode.Home",
- ["end"] = "KeyCode.End",
- ["pageup"] = "KeyCode.PageUp",
- ["pagedown"] = "KeyCode.PageDown",
- ["up"] = "KeyCode.Up",
- ["down"] = "KeyCode.Down",
- ["left"] = "KeyCode.Left",
- ["right"] = "KeyCode.Right",
- ["num0"] = "KeyCode.Zero",
- ["num1"] = "KeyCode.One",
- ["num2"] = "KeyCode.Two",
- ["num3"] = "KeyCode.Three",
- ["num4"] = "KeyCode.Four",
- ["num5"] = "KeyCode.Five",
- ["num6"] = "KeyCode.Six",
- ["num7"] = "KeyCode.Seven",
- ["num8"] = "KeyCode.Eight",
- ["num9"] = "KeyCode.Nine",
+  ["space"] = "KeyCode.Space",
+  ["shift"] = "KeyCode.LeftShift",
+  ["lshift"] = "KeyCode.LeftShift",
+  ["rshift"] = "KeyCode.RightShift",
+  ["ctrl"] = "KeyCode.LeftControl",
+  ["lctrl"] = "KeyCode.LeftControl",
+  ["rctrl"] = "KeyCode.RightControl",
+  ["alt"] = "KeyCode.LeftAlt",
+  ["lalt"] = "KeyCode.LeftAlt",
+  ["ralt"] = "KeyCode.RightAlt",
+  ["tab"] = "KeyCode.Tab",
+  ["capslock"] = "KeyCode.CapsLock",
+  ["enter"] = "KeyCode.Return",
+  ["return"] = "KeyCode.Return",
+  ["backspace"] = "KeyCode.Backspace",
+  ["delete"] = "KeyCode.Delete",
+  ["insert"] = "KeyCode.Insert",
+  ["home"] = "KeyCode.Home",
+  ["end"] = "KeyCode.End",
+  ["pageup"] = "KeyCode.PageUp",
+  ["pagedown"] = "KeyCode.PageDown",
+  ["up"] = "KeyCode.Up",
+  ["down"] = "KeyCode.Down",
+  ["left"] = "KeyCode.Left",
+  ["right"] = "KeyCode.Right",
+  ["num0"] = "KeyCode.Zero",
+  ["num1"] = "KeyCode.One",
+  ["num2"] = "KeyCode.Two",
+  ["num3"] = "KeyCode.Three",
+  ["num4"] = "KeyCode.Four",
+  ["num5"] = "KeyCode.Five",
+  ["num6"] = "KeyCode.Six",
+  ["num7"] = "KeyCode.Seven",
+  ["num8"] = "KeyCode.Eight",
+  ["num9"] = "KeyCode.Nine",
  }
  return named[keyStr:lower()]
 end
@@ -1267,75 +1613,114 @@ end
 -- Helper: fire a Roblox toast notification
 local function Notify(title, text)
  pcall(function()
- game:GetService("StarterGui"):SetCore("SendNotification", {
- Title = title,
- Text = text,
- Duration = 3,
- })
+  game:GetService("StarterGui"):SetCore("SendNotification", {
+   Title = title,
+   Text = text,
+   Duration = 3,
+  })
  end)
 end
 
 local function FireToggle(name)
  if name == "aimlock" then
- -- True if either the main aimlock OR the name aimlock is currently active
- local anyActive = Aiming.Enabled or NAME_AIMLOCK_ENABLED
- if anyActive then
- -- ── Turn EVERYTHING off ──────────────────────────────────────────
- Aiming.Enabled = false
- Settings.Enabled = false
- ToggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
- ToggleBtn.Text = "Disabled CursorLock"
- -- Save + clear the Name Aimlock target
- if NAME_AIMLOCK_ENABLED and NAME_AIMLOCK_TARGET then
- _lastNameAimlockTarget = NAME_AIMLOCK_TARGET
- end
- SetAimlockTarget(nil)
- Notify("Aimlock", "🔴 Turned OFF")
- else
- -- ── Turn main aimlock back ON ─────────────────────────────────────
- Aiming.Enabled = true
- Settings.Enabled = true
- ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
- ToggleBtn.Text = "Enabled CursorLock"
- -- Restore the last Name Aimlock target if one was saved
- if _lastNameAimlockTarget then
- SetAimlockTarget(_lastNameAimlockTarget)
- _lastNameAimlockTarget = nil
- end
- Notify("Aimlock", "🟢 Turned ON")
- end
+  -- True if either the main aimlock OR the name aimlock is currently active
+  local anyActive = Aiming.Enabled or NAME_AIMLOCK_ENABLED
+  if anyActive then
+   -- ──── Turn EVERYTHING off ─────────────────────────
+   Aiming.Enabled = false
+   Settings.Enabled = false
+   ToggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+   ToggleBtn.Text = "Disabled CursorLock"
+   -- Save + clear the Name Aimlock target
+   if NAME_AIMLOCK_ENABLED and NAME_AIMLOCK_TARGET then
+    _lastNameAimlockTarget = NAME_AIMLOCK_TARGET
+   end
+   SetAimlockTarget(nil)
+   Notify("Aimlock", "🔴 Turned OFF")
+  else
+   -- ──── Turn main aimlock back ON ───────────────────
+   Aiming.Enabled = true
+   Settings.Enabled = true
+   ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+   ToggleBtn.Text = "Enabled CursorLock"
+   -- Restore the last Name Aimlock target if one was saved
+   if _lastNameAimlockTarget then
+    SetAimlockTarget(_lastNameAimlockTarget)
+    _lastNameAimlockTarget = nil
+   end
+   Notify("Aimlock", "🟢 Turned ON")
+  end
  elseif name == "autoreset" then
- AUTO_RESET_ENABLED = not AUTO_RESET_ENABLED
- AutoResetToggle.BackgroundColor3 = AUTO_RESET_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
- AutoResetToggle.Text = "Auto Reset (10 HP): " .. (AUTO_RESET_ENABLED and "Enabled" or "Disabled")
- Notify("Auto Reset", AUTO_RESET_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
+  AUTO_RESET_ENABLED = not AUTO_RESET_ENABLED
+  AutoResetToggle.BackgroundColor3 = AUTO_RESET_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+  AutoResetToggle.Text = "Auto Reset (10 HP): " .. (AUTO_RESET_ENABLED and "Enabled" or "Disabled")
+  Notify("Auto Reset", AUTO_RESET_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
  elseif name == "fly" then
- FLY_ENABLED = not FLY_ENABLED
- FlyToggle.BackgroundColor3 = FLY_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
- FlyToggle.Text = "Fly: " .. (FLY_ENABLED and "Enabled" or "Disabled")
- if FLY_ENABLED then StartFly() else StopFly() end
- Notify("Fly", FLY_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
+  FLY_ENABLED = not FLY_ENABLED
+  FlyToggle.BackgroundColor3 = FLY_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+  FlyToggle.Text = "Fly: " .. (FLY_ENABLED and "Enabled" or "Disabled")
+  if FLY_ENABLED then StartFly() else StopFly() end
+  Notify("Fly", FLY_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
  elseif name == "noclip" then
- NOCLIP_ENABLED = not NOCLIP_ENABLED
- NoclipToggle.BackgroundColor3 = NOCLIP_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
- NoclipToggle.Text = "Noclip: " .. (NOCLIP_ENABLED and "Enabled" or "Disabled")
- Notify("Noclip", NOCLIP_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
+  NOCLIP_ENABLED = not NOCLIP_ENABLED
+  NoclipToggle.BackgroundColor3 = NOCLIP_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+  NoclipToggle.Text = "Noclip: " .. (NOCLIP_ENABLED and "Enabled" or "Disabled")
+  Notify("Noclip", NOCLIP_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
  elseif name == "camlock" then
- CAMLOCK_ENABLED = not CAMLOCK_ENABLED
- CamlockToggle.BackgroundColor3 = CAMLOCK_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
- CamlockToggle.Text = "Camlock: " .. (CAMLOCK_ENABLED and "Enabled" or "Disabled")
- Notify("Camlock", CAMLOCK_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
+  CAMLOCK_ENABLED = not CAMLOCK_ENABLED
+  CamlockToggle.BackgroundColor3 = CAMLOCK_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+  CamlockToggle.Text = "Camlock: " .. (CAMLOCK_ENABLED and "Enabled" or "Disabled")
+  Notify("Camlock", CAMLOCK_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
  elseif name == "tpwalk" then
- TPWALK_ENABLED = not TPWALK_ENABLED
- TPWalkToggle.BackgroundColor3 = TPWALK_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
- TPWalkToggle.Text = "TP Walk: " .. (TPWALK_ENABLED and "Enabled" or "Disabled")
- Notify("TP Walk", TPWALK_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
+  TPWALK_ENABLED = not TPWALK_ENABLED
+  TPWalkToggle.BackgroundColor3 = TPWALK_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+  TPWalkToggle.Text = "TP Walk: " .. (TPWALK_ENABLED and "Enabled" or "Disabled")
+  Notify("TP Walk", TPWALK_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
  elseif name == "fovvisible" then
- Settings.ShowFOV = not Settings.ShowFOV
- Aiming.ShowFOV = Settings.ShowFOV
- FOVCircleToggle.BackgroundColor3 = Settings.ShowFOV and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
- FOVCircleToggle.Text = Settings.ShowFOV and "CursorLock Circle: Visible" or "CursorLock Circle: Hidden"
- Notify("FOV Circle", Settings.ShowFOV and "🟢 Turned ON" or "🔴 Turned OFF")
+  Settings.ShowFOV = not Settings.ShowFOV
+  Aiming.ShowFOV = Settings.ShowFOV
+  FOVCircleToggle.BackgroundColor3 = Settings.ShowFOV and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+  FOVCircleToggle.Text = Settings.ShowFOV and "CursorLock Circle: Visible" or "CursorLock Circle: Hidden"
+  Notify("FOV Circle", Settings.ShowFOV and "🟢 Turned ON" or "🔴 Turned OFF")
+ elseif name == "keylock" then
+  -- Mouse Keylock: lock aimlock onto whoever the cursor is currently hovering over.
+  -- Uses the same FOV-cursor search as CursorLock but ignores FOV limit (full range).
+  local target = nil
+  local shortestDist = math.huge
+  local mouseLocation = UserInputService:GetMouseLocation()
+  for _, player in pairs(Players:GetPlayers()) do
+   if player ~= LocalPlayer and player.Character then
+    local hitpart = player.Character:FindFirstChild(Settings.Hitpart) or player.Character:FindFirstChild("HumanoidRootPart")
+    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+    if hitpart and humanoid and humanoid.Health > 0 then
+     local screenPos, onScreen = Camera:WorldToViewportPoint(hitpart.Position)
+     if onScreen then
+      local dist = (Vector2.new(screenPos.X, screenPos.Y) - mouseLocation).Magnitude
+      if dist < shortestDist then
+       shortestDist = dist
+       target = player
+      end
+     end
+    end
+   end
+  end
+  if target then
+   -- Enable cursorlock + name aimlock on the hovered player
+   Aiming.Enabled = true
+   Settings.Enabled = true
+   ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+   ToggleBtn.Text = "Enabled CursorLock"
+   SetAimlockTarget(target)
+   Notify("KeyLock", "🎯 Locked → " .. target.Name)
+  else
+   -- No player near cursor: clear aimlock instead
+   Aiming.Enabled = false
+   Settings.Enabled = false
+   ToggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+   ToggleBtn.Text = "Disabled CursorLock"
+   SetAimlockTarget(nil)
+   Notify("KeyLock", "🔴 No target — cleared")
+  end
  end
 end
 
@@ -1351,725 +1736,285 @@ local VALID_TOGGLES = {
  ["keylock"] = true, -- mouse-target aimlock setter
 }
 
--- // ─────────────────────────────────────────────
+-- -----------------------------------------------------
 -- // CMD POPUP WINDOW
--- // ─────────────────────────────────────────────
+-- -----------------------------------------------------
 
 local CMD_LIST = {
  { cmd = "bind ", desc = "Bind a key to toggle a feature on/off" },
  { cmd = "unbind ", desc = "Remove the bind from a toggle" },
+ { cmd = "unbind all", desc = "Remove every active bind at once" },
  { cmd = "binds", desc = "List all your currently active binds" },
  { cmd = "get ", desc = "Teleport to item in world" },
- { cmd = "cmd", desc = "Open / close this command list" },
+ { cmd = "cmd", desc = "Open command list (close with ✕ button)" },
  { cmd = "help", desc = "Quick tip for the command bar" },
  { cmd = "chatenable", desc = "Re-enable the Roblox chat window & input bar" },
  { cmd = "", desc = "── Get: available items ───────────────" },
- { cmd = "money",   desc = "→ Scan workspace for money"     },
- { cmd = "grenade", desc = "→ Scan workspace for grenades"  },
- { cmd = "flash",   desc = "→ Scan workspace for flashbangs"},
- { cmd = "golf",    desc = "→ Scan workspace for golf ball" },
- { cmd = "ar15",    desc = "→ Scan workspace for AR15"      },
+ { cmd = "money", desc = "→ Scan workspace for money" },
+ { cmd = "grenade", desc = "→ Scan workspace for grenades" },
+ { cmd = "flash", desc = "→ Scan workspace for flashbangs"},
+ { cmd = "golf", desc = "→ Scan workspace for golf ball" },
+ { cmd = "ar15", desc = "→ Scan workspace for AR15" },
  { cmd = "molotov", desc = "→ Scan workspace for molotovs" },
- { cmd = "brick",   desc = "→ Scan workspace for brick"     },
- { cmd = "usas",    desc = "→ Scan workspace for USAS-12"  },
- { cmd = "uzi",     desc = "→ Scan workspace for Uzi"      },
- { cmd = "", desc = "── Item ESP ────────────────────────────────" },
- { cmd = "itemesp",  desc = "ESP all scannable items in world" },
- { cmd = "unitemesp",desc = "Remove item ESP"                  },
+ { cmd = "brick", desc = "→ Scan workspace for brick" },
+ { cmd = "usas", desc = "→ Scan workspace for USAS-12" },
+ { cmd = "uzi", desc = "→ Scan workspace for Uzi" },
+ { cmd = "", desc = "── Item ESP ────────────────────────────" },
+ { cmd = "itemesp", desc = "ESP all scannable items in world" },
+ { cmd = "unitemesp",desc = "Remove item ESP" },
  { cmd = "", desc = "── Bindable toggles ──────────────────" },
- { cmd = "aimlock", desc = "CursorLock + Name Aimlock (kill-switch)" },
+ { cmd = "aimlock {player}", desc = "Lock aimlock onto player (or 'off' to clear, no arg = toggle)" },
  { cmd = "autoreset", desc = "Auto reset character at ≤10 HP" },
- { cmd = "fly", desc = "Fly mode" },
+ { cmd = "fly", desc = "Enable fly mode" },
+ { cmd = "unfly", desc = "Disable fly mode" },
+ { cmd = "unaimlock", desc = "Turn off ALL aimlock and sync GUI" },
  { cmd = "noclip", desc = "No-clip through walls" },
  { cmd = "rainbowhats", desc = "Rainbow-cycle all hat colors in phone GUI (toggle)" },
  { cmd = "rejoin", desc = "Rejoin the current server" },
- { cmd = "camlock", desc = "Lock camera onto selected player" },
+ { cmd = "camlock {player}", desc = "Camlock onto player by name (or 'off' to clear)" },
  { cmd = "tpwalk", desc = "Teleport-step walking" },
  { cmd = "fovvisible", desc = "Show / hide the FOV circle" },
  { cmd = "keylock", desc = "Hover cursor on a player + press bind to lock aimlock on them" },
+ { cmd = "esp {player}", desc = "Toggle ESP for player (or 'all', 'off')" },
 }
 
 local ROW_H = 34
 local POPUP_W = 420
 local HEADER_H = 38
-local FOOTER_H = 36
-local CONTENT_H = #CMD_LIST * ROW_H  -- full canvas height
+local CONTENT_H = #CMD_LIST * ROW_H -- full canvas height
 -- Clamp popup height to 80% of screen height so it always fits
 local screenH = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.Y or 600
 local MAX_POPUP_H = math.floor(screenH * 0.80)
-local POPUP_H = math.min(HEADER_H + CONTENT_H + FOOTER_H + 8, MAX_POPUP_H)
+local POPUP_H = math.min(HEADER_H + CONTENT_H + 8, MAX_POPUP_H)
 
--- Popup container (floating, draggable, starts hidden)
 local CmdPopup = Instance.new("Frame")
-CmdPopup.Name = "CmdPopup"
+CmdPopup.Name = "SlaxCmdPopup"
 CmdPopup.Size = UDim2.new(0, POPUP_W, 0, POPUP_H)
-CmdPopup.Position = UDim2.new(0.5, -(POPUP_W / 2), 0.5, -(POPUP_H / 2))
+-- Centered slightly to the right of the main panel so they don't overlap
+CmdPopup.Position = UDim2.new(0.5, 160, 0.5, -POPUP_H/2)
 CmdPopup.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-CmdPopup.BorderSizePixel = 0
-CmdPopup.Visible = false
-CmdPopup.ZIndex = 20
+CmdPopup.BorderSizePixel = 1
+CmdPopup.BorderColor3 = Color3.fromRGB(50, 50, 50)
 CmdPopup.Active = true
 CmdPopup.Draggable = false
+CmdPopup.Visible = false
 CmdPopup.Parent = ScreenGui
 
 do
- local corner = Instance.new("UICorner")
- corner.CornerRadius = UDim.new(0, 6)
- corner.Parent = CmdPopup
-end
-
--- Drag logic for the popup
-do
- local popupDragging = false
- local popupDragStart = nil
- local popupStartPos = nil
-
+ local dragging, dragInput, dragStart, startPos
  CmdPopup.InputBegan:Connect(function(input)
- if input.UserInputType == Enum.UserInputType.MouseButton1 then
- popupDragging = true
- popupDragStart = input.Position
- popupStartPos = CmdPopup.Position
- end
+  if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+   dragging = true
+   dragStart = input.Position
+   startPos = CmdPopup.Position
+   input.Changed:Connect(function()
+    if input.UserInputState == Enum.UserInputState.End then
+     dragging = false
+    end
+   end)
+  end
  end)
- CmdPopup.InputEnded:Connect(function(input)
- if input.UserInputType == Enum.UserInputType.MouseButton1 then
- popupDragging = false
- end
+ CmdPopup.InputChanged:Connect(function(input)
+  if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+   dragInput = input
+  end
  end)
  UserInputService.InputChanged:Connect(function(input)
- if popupDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
- local delta = input.Position - popupDragStart
- CmdPopup.Position = UDim2.new(
- popupStartPos.X.Scale, popupStartPos.X.Offset + delta.X,
- popupStartPos.Y.Scale, popupStartPos.Y.Offset + delta.Y
- )
- end
+  if input == dragInput and dragging then
+   local delta = input.Position - dragStart
+   CmdPopup.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+  end
  end)
 end
 
--- Header bar
-local PopupHeader = Instance.new("Frame")
-PopupHeader.Size = UDim2.new(1, 0, 0, HEADER_H)
-PopupHeader.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-PopupHeader.BorderSizePixel = 0
-PopupHeader.ZIndex = 21
-PopupHeader.Parent = CmdPopup
+local PopTitle = Instance.new("TextLabel")
+PopTitle.Size = UDim2.new(1, 0, 0, HEADER_H)
+PopTitle.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+PopTitle.BorderSizePixel = 0
+PopTitle.Text = "⌨️ SLAXWARE COMMAND LIST"
+PopTitle.TextColor3 = Color3.fromRGB(0, 180, 255)
+PopTitle.TextSize = 13
+PopTitle.Font = Enum.Font.GothamBold
+PopTitle.Parent = CmdPopup
 
-do
- local corner = Instance.new("UICorner")
- corner.CornerRadius = UDim.new(0, 6)
- corner.Parent = PopupHeader
-end
-
--- Patch bottom corners of header (UICorner rounds all four)
-local headerPatch = Instance.new("Frame")
-headerPatch.Size = UDim2.new(1, 0, 0, 8)
-headerPatch.Position = UDim2.new(0, 0, 1, -8)
-headerPatch.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-headerPatch.BorderSizePixel = 0
-headerPatch.ZIndex = 21
-headerPatch.Parent = PopupHeader
-
-local PopupTitle = Instance.new("TextLabel")
-PopupTitle.Size = UDim2.new(1, -44, 1, 0)
-PopupTitle.Position = UDim2.new(0, 12, 0, 0)
-PopupTitle.BackgroundTransparency = 1
-PopupTitle.Text = "⌨ Command List"
-PopupTitle.TextColor3 = Color3.new(1, 1, 1)
-PopupTitle.TextSize = 14
-PopupTitle.Font = Enum.Font.GothamSemibold
-PopupTitle.TextXAlignment = Enum.TextXAlignment.Left
-PopupTitle.ZIndex = 22
-PopupTitle.Parent = PopupHeader
-
--- Close button (×)
-local PopupClose = Instance.new("TextButton")
-PopupClose.Size = UDim2.new(0, 28, 0, 28)
-PopupClose.Position = UDim2.new(1, -34, 0.5, -14)
-PopupClose.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
-PopupClose.Text = "✕"
-PopupClose.TextColor3 = Color3.new(1, 1, 1)
-PopupClose.TextSize = 14
-PopupClose.Font = Enum.Font.GothamSemibold
-PopupClose.BorderSizePixel = 0
-PopupClose.ZIndex = 22
-PopupClose.Parent = PopupHeader
+-- Small X Close button in the corner
+local PopCloseBtn = Instance.new("TextButton")
+PopCloseBtn.Size = UDim2.new(0, 24, 0, 24)
+PopCloseBtn.Position = UDim2.new(1, -30, 0, 7)
+PopCloseBtn.BackgroundColor3 = Color3.fromRGB(180, 30, 30)
+PopCloseBtn.BorderSizePixel = 0
+PopCloseBtn.Text = "✕"
+PopCloseBtn.TextColor3 = Color3.new(1, 1, 1)
+PopCloseBtn.TextSize = 14
+PopCloseBtn.Font = Enum.Font.GothamBold
+PopCloseBtn.ZIndex = 2
+PopCloseBtn.Parent = CmdPopup
 
 do
  local corner = Instance.new("UICorner")
  corner.CornerRadius = UDim.new(0, 4)
- corner.Parent = PopupClose
+ corner.Parent = PopCloseBtn
 end
 
-PopupClose.MouseButton1Click:Connect(function()
+PopCloseBtn.MouseEnter:Connect(function()
+ PopCloseBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+end)
+PopCloseBtn.MouseLeave:Connect(function()
+ PopCloseBtn.BackgroundColor3 = Color3.fromRGB(180, 30, 30)
+end)
+PopCloseBtn.MouseButton1Click:Connect(function()
  CmdPopup.Visible = false
 end)
 
--- Scrolling body
-local PopupScroll = Instance.new("ScrollingFrame")
-PopupScroll.Size = UDim2.new(1, 0, 1, -(HEADER_H + FOOTER_H + 4))
-PopupScroll.Position = UDim2.new(0, 0, 0, HEADER_H + 2)
-PopupScroll.BackgroundTransparency = 1
-PopupScroll.BorderSizePixel = 0
-PopupScroll.ScrollBarThickness = 6
-PopupScroll.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 100)
-PopupScroll.CanvasSize = UDim2.new(0, 0, 0, CONTENT_H)
-PopupScroll.ScrollingEnabled = true
-PopupScroll.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
-PopupScroll.ScrollingDirection = Enum.ScrollingDirection.Y
-PopupScroll.AutomaticCanvasSize = Enum.AutomaticSize.None
-PopupScroll.ZIndex = 21
-PopupScroll.Parent = CmdPopup
+local PopScroll = Instance.new("ScrollingFrame")
+PopScroll.Size = UDim2.new(1, 0, 1, -HEADER_H)
+PopScroll.Position = UDim2.new(0, 0, 0, HEADER_H)
+PopScroll.BackgroundTransparency = 1
+PopScroll.BorderSizePixel = 0
+PopScroll.ScrollBarThickness = 6
+PopScroll.CanvasSize = UDim2.new(0, 0, 0, CONTENT_H)
+PopScroll.Parent = CmdPopup
 
--- Populate rows
-for i, entry in ipairs(CMD_LIST) do
- local isSeparator = entry.cmd == ""
+local PopLayout = Instance.new("UIListLayout")
+PopLayout.SortOrder = Enum.SortOrder.LayoutOrder
+PopLayout.Parent = PopScroll
 
+for i, cmdInfo in ipairs(CMD_LIST) do
  local row = Instance.new("Frame")
- row.Size = UDim2.new(1, -8, 0, ROW_H - 2)
- row.Position = UDim2.new(0, 4, 0, (i - 1) * ROW_H + 2)
- row.BackgroundColor3 = isSeparator
- and Color3.fromRGB(28, 28, 28)
- or (i % 2 == 0 and Color3.fromRGB(28, 28, 28) or Color3.fromRGB(33, 33, 33))
- row.BorderSizePixel = 0
- row.ZIndex = 22
- row.Parent = PopupScroll
+ row.Size = UDim2.new(1, 0, 0, ROW_H)
+ row.BackgroundTransparency = 1
+ row.LayoutOrder = i
+ row.Parent = PopScroll
 
- do
- local corner = Instance.new("UICorner")
- corner.CornerRadius = UDim.new(0, 4)
- corner.Parent = row
- end
+ if cmdInfo.cmd ~= "" then
+  local cmdLbl = Instance.new("TextLabel")
+  cmdLbl.Size = UDim2.new(0.35, -12, 1, 0)
+  cmdLbl.Position = UDim2.new(0, 12, 0, 0)
+  cmdLbl.BackgroundTransparency = 1
+  cmdLbl.Text = cmdInfo.cmd
+  cmdLbl.TextColor3 = Color3.fromRGB(0, 210, 255)
+  cmdLbl.TextSize = 12
+  cmdLbl.Font = Enum.Font.Code
+  cmdLbl.TextXAlignment = Enum.TextXAlignment.Left
+  cmdLbl.Parent = row
 
- if isSeparator then
- -- Section divider label
- local sepLabel = Instance.new("TextLabel")
- sepLabel.Size = UDim2.new(1, -10, 1, 0)
- sepLabel.Position = UDim2.new(0, 8, 0, 0)
- sepLabel.BackgroundTransparency = 1
- sepLabel.Text = entry.desc
- sepLabel.TextColor3 = Color3.fromRGB(120, 120, 120)
- sepLabel.TextSize = 11
- sepLabel.Font = Enum.Font.Gotham
- sepLabel.TextXAlignment = Enum.TextXAlignment.Left
- sepLabel.ZIndex = 23
- sepLabel.Parent = row
+  local descLbl = Instance.new("TextLabel")
+  descLbl.Size = UDim2.new(0.65, -12, 1, 0)
+  descLbl.Position = UDim2.new(0.35, 6, 0, 0)
+  descLbl.BackgroundTransparency = 1
+  descLbl.Text = cmdInfo.desc
+  descLbl.TextColor3 = Color3.fromRGB(180, 180, 180)
+  descLbl.TextSize = 11
+  descLbl.Font = Enum.Font.Gotham
+  descLbl.TextXAlignment = Enum.TextXAlignment.Left
+  descLbl.Parent = row
  else
- -- Command name (left, highlighted)
- local cmdLabel = Instance.new("TextLabel")
- cmdLabel.Size = UDim2.new(0.42, -4, 1, 0)
- cmdLabel.Position = UDim2.new(0, 10, 0, 0)
- cmdLabel.BackgroundTransparency = 1
- cmdLabel.Text = entry.cmd
- cmdLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
- cmdLabel.TextSize = 12
- cmdLabel.Font = Enum.Font.GothamSemibold
- cmdLabel.TextXAlignment = Enum.TextXAlignment.Left
- cmdLabel.ZIndex = 23
- cmdLabel.Parent = row
-
- -- Description (right, muted)
- local descLabel = Instance.new("TextLabel")
- descLabel.Size = UDim2.new(0.58, -10, 1, 0)
- descLabel.Position = UDim2.new(0.42, 4, 0, 0)
- descLabel.BackgroundTransparency = 1
- descLabel.Text = entry.desc
- descLabel.TextColor3 = Color3.fromRGB(190, 190, 190)
- descLabel.TextSize = 11
- descLabel.Font = Enum.Font.Gotham
- descLabel.TextXAlignment = Enum.TextXAlignment.Left
- descLabel.ZIndex = 23
- descLabel.Parent = row
+  local sepLbl = Instance.new("TextLabel")
+  sepLbl.Size = UDim2.new(1, -24, 1, 0)
+  sepLbl.Position = UDim2.new(0, 12, 0, 0)
+  sepLbl.BackgroundTransparency = 1
+  sepLbl.Text = cmdInfo.desc
+  sepLbl.TextColor3 = Color3.fromRGB(100, 100, 100)
+  sepLbl.TextSize = 11
+  sepLbl.Font = Enum.Font.GothamBold
+  sepLbl.TextXAlignment = Enum.TextXAlignment.Left
+  sepLbl.Parent = row
  end
 end
 
--- Footer hint
-local PopupFooter = Instance.new("TextLabel")
-PopupFooter.Size = UDim2.new(1, -16, 0, FOOTER_H)
-PopupFooter.Position = UDim2.new(0, 8, 1, -FOOTER_H - 2)
-PopupFooter.BackgroundTransparency = 1
-PopupFooter.Text = "Type a command in the bar below • drag this window to move it"
-PopupFooter.TextColor3 = Color3.fromRGB(90, 90, 90)
-PopupFooter.TextSize = 10
-PopupFooter.Font = Enum.Font.Gotham
-PopupFooter.TextXAlignment = Enum.TextXAlignment.Center
-PopupFooter.ZIndex = 21
-PopupFooter.Parent = CmdPopup
+-- -----------------------------------------------------
+-- // COMMAND INTERPRETER ENGINE
+-- -----------------------------------------------------
 
--- // ─────────────────────────────────────────────
--- Command parser
-local function ParseCommand(raw)
- local parts = {}
- for word in raw:gmatch("%S+") do
- table.insert(parts, word:lower())
- end
- if #parts == 0 then return end
-
- local cmd = parts[1]
-
- -- BIND command: bind
- if cmd == "bind" then
- if #parts < 3 then
- CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
- CmdFeedback.Text = "Usage: bind "
- return
- end
- local toggleName = parts[2]
- local keyName = parts[3]
-
- if not VALID_TOGGLES[toggleName] then
- CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
- CmdFeedback.Text = "Unknown toggle: " .. toggleName
- return
- end
-
- local keyCodePath = ResolveKeyCode(keyName)
- if not keyCodePath then
- CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
- CmdFeedback.Text = "Unknown key: " .. keyName
- return
- end
-
- -- e.g. keyCodePath = "KeyCode.F" → split to get the actual Enum value
- local enumName = keyCodePath:match("KeyCode%.(.+)")
- local ok, keyEnum = pcall(function()
- return Enum.KeyCode[enumName]
- end)
- if not ok or not keyEnum then
- CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
- CmdFeedback.Text = "Invalid key: " .. keyName
- return
- end
-
- -- Unbind previous if same toggle was already bound to another key
- Binds[toggleName] = keyEnum
-
- CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
- CmdFeedback.Text = "Bound " .. toggleName .. " → " .. keyName:upper()
- return
- end
-
- -- UNBIND command: unbind
- if cmd == "unbind" then
- if #parts < 2 then
- CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
- CmdFeedback.Text = "Usage: unbind "
- return
- end
- local toggleName = parts[2]
- if not VALID_TOGGLES[toggleName] then
- CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
- CmdFeedback.Text = "Unknown toggle: " .. toggleName
- return
- end
- if Binds[toggleName] then
- Binds[toggleName] = nil
- CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
- CmdFeedback.Text = "Unbound " .. toggleName
- else
- CmdFeedback.TextColor3 = Color3.fromRGB(160, 160, 160)
- CmdFeedback.Text = toggleName .. " has no bind"
- end
- return
- end
-
- -- BINDS command: list all current binds
- if cmd == "binds" then
- local out = ""
- for name, key in pairs(Binds) do
- out = out .. name .. "=" .. tostring(key).." "
- end
- CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 255)
- CmdFeedback.Text = out ~= "" and ("Binds: " .. out) or "No binds set"
- return
- end
-
- -- GET command: teleport to a gun model in the world
- if cmd == "get" then
- if #parts < 2 then
- CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
- CmdFeedback.Text = "Usage: get  (e.g. get money)"
- return
- end
-
- -- Map of item keyword → exact workspace model name
- local ITEM_MAP = {
- ["ammo"] = "Buy Ammo | $25",
- }
-
- -- Items where multiple copies exist in the world; pick the closest one.
- local FIND_CLOSEST = {
- ["Buy Ammo | $25"] = true,
- }
-
- local itemKey=parts[2]:lower()
- local iDef=GET_ITEMS[itemKey]
- if iDef then
-  local function nId(s) return tostring(s):lower():gsub("%s+","") end
-  local function mI(o)
-   local c=o.ClassName;local m=iDef.mesh and nId(iDef.mesh);local t=iDef.texture and nId(iDef.texture)
-   if c=="SpecialMesh" or c=="FileMesh" then return (m and nId(o.MeshId)==m) or (t and nId(o.TextureId)==t)
-   elseif c=="MeshPart" then return (m and nId(o.MeshId)==m) or (t and nId(o.TextureId)==t)
-   elseif c=="Texture" or c=="Decal" then return t and nId(o.Texture)==t
-   end;return false
+-- Helper: find a player by exact or partial name (case-insensitive)
+local function FindPlayerByName(query)
+ if not query or query == "" then return nil end
+ local q = query:lower()
+ -- Exact match first
+ for _, plr in pairs(Players:GetPlayers()) do
+  if plr ~= LocalPlayer then
+   if plr.Name:lower() == q or plr.DisplayName:lower() == q then
+    return plr
+   end
   end
-  CmdFeedback.TextColor3=Color3.fromRGB(255,215,0)
-  CmdFeedback.Text="🔍 Scanning for "..itemKey.."..."
-  Notify("Get","🔍 "..itemKey)
-  task.spawn(function()
-   local fd,sn={},{}
-   for i,o in ipairs(workspace:GetDescendants()) do
-    if i%200==0 then task.wait() end
-    local ok,h=pcall(mI,o)
-    if ok and h then
-     local a=o.Parent
-     while a and a~=workspace do if a:IsA("Model") then break end;a=a.Parent end
-     local tg=(a and a~=workspace and a:IsA("Model")) and a or (o:IsA("BasePart") and o) or (o.Parent and o.Parent:IsA("BasePart") and o.Parent)
-     if tg and not sn[tg] then sn[tg]=true;table.insert(fd,tg) end
-    end
-   end
-   if #fd==0 then CmdFeedback.TextColor3=Color3.fromRGB(255,80,80);CmdFeedback.Text="No "..itemKey.." found";Notify("Get","❌ Not found");return end
-   local hn=LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart");local cl=fd[1]
-   if hn and #fd>1 then local b=math.huge
-    for _,m in ipairs(fd) do local p
-     if m:IsA("Model") then p=m.PrimaryPart and m.PrimaryPart.Position;if not p then for _,v in pairs(m:GetDescendants()) do if v:IsA("BasePart") then p=v.Position;break end end end
-     elseif m:IsA("BasePart") then p=m.Position end
-     if p then local d=(p-hn.Position).Magnitude;if d<b then b=d;cl=m end end
-    end
-   end
-   local tp;if cl:IsA("Model") then tp=cl.PrimaryPart and cl.PrimaryPart.Position
-    if not tp then for _,v in pairs(cl:GetDescendants()) do if v:IsA("BasePart") then tp=v.Position;break end end end
-   elseif cl:IsA("BasePart") then tp=cl.Position end
-   if not tp then CmdFeedback.TextColor3=Color3.fromRGB(255,80,80);CmdFeedback.Text="No position";return end
-   if tp.Y < -50 then CmdFeedback.TextColor3=Color3.fromRGB(255,140,0);CmdFeedback.Text="⚠️ "..itemKey.." appears to be in the void — skipped";return end
-   local ch=LocalPlayer.Character;local hr=ch and ch:FindFirstChild("HumanoidRootPart")
-   if not hr then CmdFeedback.TextColor3=Color3.fromRGB(255,80,80);CmdFeedback.Text="No character";return end
-   CmdFeedback.TextColor3=Color3.fromRGB(255,215,0);CmdFeedback.Text="🚶 Walking to "..itemKey.." ("..#fd.." found)..."
-   Notify("Get","🚶 "..itemKey.." x"..#fd)
-   -- Enable noclip during teleport so walls don't block movement
-   local _wasNoclip = NOCLIP_ENABLED
-   if not NOCLIP_ENABLED then
-    NOCLIP_ENABLED = true
-    NoclipToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-    NoclipToggle.Text = "Noclip: Enabled"
-   end
-   local S,D,M,fp=170,1.5,600,nil
-   for _ = 1,M do
-    if not cl or not cl.Parent then break end
-    local lp;if cl:IsA("Model") then lp=cl.PrimaryPart and cl.PrimaryPart.Position
-     if not lp then for _,v in pairs(cl:GetDescendants()) do if v:IsA("BasePart") then lp=v.Position;break end end end
-    elseif cl:IsA("BasePart") then lp=cl.Position end
-    if not lp then break end;fp=lp
-    local d=lp-hr.Position;if d.Magnitude<=D then break end
-    -- Void check: abort if character is falling into the void
-    if hr.Position.Y < -120 then
-     CmdFeedback.TextColor3=Color3.fromRGB(255,80,80);CmdFeedback.Text="⚠️ Void detected — aborted!"
-     Notify("Get","⚠️ Void abort");break
-    end
-    hr.CFrame=hr.CFrame+d.Unit*math.min(S*0.016,d.Magnitude);task.wait()
-   end
-   if fp then local ld=fp-hr.Position;if ld.Magnitude>0.01 then hr.CFrame=CFrame.lookAt(hr.Position,fp) end end
-   -- Restore noclip to its previous state after arrival
-   if not _wasNoclip then
-    NOCLIP_ENABLED = false
-    NoclipToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
-    NoclipToggle.Text = "Noclip: Disabled"
-   end
-   CmdFeedback.TextColor3=Color3.fromRGB(0,220,80);CmdFeedback.Text="✅ Arrived at "..itemKey.."!"
-   Notify("Get","✅ "..itemKey)
-  end);return
  end
+ -- Partial match second
+ for _, plr in pairs(Players:GetPlayers()) do
+  if plr ~= LocalPlayer then
+   if plr.Name:lower():find(q, 1, true) or plr.DisplayName:lower():find(q, 1, true) then
+    return plr
+   end
+  end
+ end
+ return nil
+end
 
-  local modelName = ITEM_MAP[itemKey]
- if not modelName then
- CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
- CmdFeedback.Text = "Unknown item: " .. itemKey .. " (try: uzi)"
- return
- end
-
- -- Search the whole workspace recursively.
- -- For items in FIND_CLOSEST, collect every matching model and pick nearest.
- local model
- if FIND_CLOSEST[modelName] then
- local hrpNow = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
- local bestDist = math.huge
- for _, obj in pairs(workspace:GetDescendants()) do
- if obj.Name == modelName then
- local pos
- if obj:IsA("Model") then
- pos = obj.PrimaryPart and obj.PrimaryPart.Position
- or (function()
- for _, v in pairs(obj:GetDescendants()) do
- if v:IsA("BasePart") then return v.Position end
- end
- end)()
- elseif obj:IsA("BasePart") then
- pos = obj.Position
- end
- if pos and hrpNow then
- local d = (pos - hrpNow.Position).Magnitude
- if d < bestDist then bestDist = d; model = obj end
- end
- end
- end
+-- Helper: sync camlock target to GUI without touching the toggle state
+local function SetCamlockTarget(plr)
+ CAMLOCK_TARGET = plr
+ if plr then
+  CamlockDropBtn.Text = "▼ " .. plr.Name
+  CamlockDropBtn.TextColor3 = Color3.new(1, 1, 1)
+  TargetLabel.Text = "Target: " .. plr.Name
  else
- model = workspace:FindFirstChild(modelName, true)
+  CamlockDropBtn.Text = "▼ Select Player..."
+  CamlockDropBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
+  TargetLabel.Text = "Target: none"
  end
- if not model then
- CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
- CmdFeedback.Text = modelName .. " not found in workspace"
- return
+end
+
+function ParseCommand(inputStr)
+ -- Clean surrounding whitespaces
+ local cleanInput = inputStr:match("^%s*(.-)%s*$")
+ if cleanInput == "" then return end
+
+ -- Parse parts separated by whitespace
+ local parts = {}
+ for word in cleanInput:gmatch("%S+") do
+  table.insert(parts, word)
  end
 
- -- Resolve the target position from the model
- local targetPos
- if model:IsA("Model") then
- if model.PrimaryPart then
- targetPos = model.PrimaryPart.Position
- else
- for _, v in pairs(model:GetDescendants()) do
- if v:IsA("BasePart") then
- targetPos = v.Position
- break
- end
- end
- end
- elseif model:IsA("BasePart") then
- targetPos = model.Position
- end
+ if #parts == 0 then return end
+ local cmd = parts[1]:lower()
 
- if not targetPos then
- CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
- CmdFeedback.Text = "Couldn't find position for " .. modelName
- return
- end
-
- -- Make sure the player has a character
- local character = LocalPlayer.Character
- local hrp = character and character:FindFirstChild("HumanoidRootPart")
- if not hrp then
- CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
- CmdFeedback.Text = "No character — respawn and try again"
- return
- end
-
- -- Bypassed teleport with auto-retry until the tool appears in inventory
- local destCFrame = CFrame.new(targetPos + Vector3.new(0, 4, 0))
-
- -- Strip "| $price" suffix to get the bare tool name used inside Backpack
- -- e.g. "Uzi | $150" → "Uzi", "Sawed Off | $150" → "Sawed Off"
- local baseName = (modelName:match("^(.-)%s*|") or modelName):match("^%s*(.-)%s*$")
-
- local function toolInInventory()
- local containers = { LocalPlayer.Backpack }
- if LocalPlayer.Character then
- table.insert(containers, LocalPlayer.Character)
- end
- for _, container in pairs(containers) do
- for _, item in pairs(container:GetChildren()) do
- if item:IsA("Tool") then
- local n = item.Name
- if n == modelName or n == baseName
- or n:lower():find(baseName:lower(), 1, true) then
- return true
- end
- end
- end
- end
- return false
- end
-
- CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
- CmdFeedback.Text = "Going to " .. modelName .. "..."
- Notify("Get", "📦 Going to " .. modelName)
-
- task.spawn(function()
- -- "get ammo" teleports once and stops; other items retry up to 20 times.
- local MAX_ATTEMPTS = (itemKey == "ammo") and 1 or 20
- local attempt = 0
-
- while attempt < MAX_ATTEMPTS and not toolInInventory() do
- attempt = attempt + 1
-
- -- TP Walk toward the LOCKED model only — live-track its position each step
- -- so we stay focused on the exact instance found at command time.
- do
- local STEP_SPEED = 180 -- studs per second
- local ARRIVE_DIST = 0.5 -- land directly ON the model
- local MAX_STEPS = 400 -- hard cap so it can't loop forever
- local finalPos = nil -- track where we stop so we can face it
-
- for _ = 1, MAX_STEPS do
- -- Re-read the model's live world position each frame (tracks if it moves)
- local livePos
- if model:IsA("Model") then
- livePos = model.PrimaryPart and model.PrimaryPart.Position
- if not livePos then
- for _, v in pairs(model:GetDescendants()) do
- if v:IsA("BasePart") then livePos = v.Position; break end
- end
- end
- elseif model:IsA("BasePart") then
- livePos = model.Position
- end
- if not livePos then break end -- model disappeared
- finalPos = livePos
- -- No y-offset: walk straight onto the model's position
- local diff = livePos - hrp.Position
- if diff.Magnitude <= ARRIVE_DIST then break end
- hrp.CFrame = hrp.CFrame + diff.Unit * math.min(STEP_SPEED * 0.016, diff.Magnitude)
- task.wait() -- one frame, same as Heartbeat in TP Walk
- end
-
- -- Snap HRP to face the model so the game registers the interaction
- -- regardless of where the camera was pointing beforehand.
- if finalPos then
- local lookDir = (finalPos - hrp.Position)
- if lookDir.Magnitude > 0.01 then
- hrp.CFrame = CFrame.lookAt(hrp.Position, finalPos)
- end
- end
- end
- task.wait(0.05)
-
- -- Fire the ProximityPrompt on the LOCKED model only (all get commands).
- -- Disable the prompt immediately after so the game can't re-fire it
- -- or accidentally trigger any other nearby prompt on the same frame.
- local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
- if prompt then
- pcall(function()
- prompt.MaxActivationDistance = 999
- prompt.HoldDuration = 0
- prompt.RequiresLineOfSight = false
- prompt:InputHoldBegin()
- task.wait(prompt.HoldDuration)
- prompt:InputHoldEnd()
- prompt.Enabled = false -- immediately lock it out so nothing nearby re-triggers
- end)
- end
-
- task.wait(0.3)
-
- if attempt > 1 and not toolInInventory() then
- CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
- CmdFeedback.Text = "Retrying... (" .. attempt .. "/" .. MAX_ATTEMPTS .. ")"
- end
- end
-
- if toolInInventory() then
- CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
- CmdFeedback.Text = "Grabbed " .. modelName .. "!"
- Notify("Get", "✅ Grabbed " .. modelName)
- else
- CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
- CmdFeedback.Text = "Failed after " .. MAX_ATTEMPTS .. " attempts"
- Notify("Get", "❌ Could not grab " .. modelName)
- end
- end)
- return
- end
-
- if cmd=="itemesp" then
-  if ITEM_ESP_ACTIVE then CmdFeedback.TextColor3=Color3.fromRGB(255,180,50);CmdFeedback.Text="Already active — use unitemesp";return end
-  CmdFeedback.TextColor3=Color3.fromRGB(100,200,255);CmdFeedback.Text="🔍 Scanning...";Notify("ItemESP","🔍 Building ESP...")
-  task.spawn(function()
-   local function nId(s) return tostring(s):lower():gsub("%s+","") end
-   local CLR={money=Color3.fromRGB(255,215,0),grenade=Color3.fromRGB(80,200,80),flash=Color3.fromRGB(255,255,120),golf=Color3.fromRGB(255,150,50),ar15=Color3.fromRGB(200,80,80),molotov=Color3.fromRGB(255,100,30),brick=Color3.fromRGB(180,120,60),usas=Color3.fromRGB(150,100,255),uzi=Color3.fromRGB(80,180,255)}
-   local function addHL(tg,lbl,clr)
-    local hl=Instance.new("Highlight");hl.Name="SlaxrItemESP";hl.FillColor=clr;hl.OutlineColor=clr;hl.FillTransparency=0.6;hl.OutlineTransparency=0;hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop;hl.Parent=tg;table.insert(ITEM_ESP_OBJECTS,hl)
-    local anc;if tg:IsA("Model") then anc=tg.PrimaryPart;if not anc then for _,v in pairs(tg:GetDescendants()) do if v:IsA("BasePart") then anc=v;break end end end
-    elseif tg:IsA("BasePart") then anc=tg end
-    if anc then
-     local bb=Instance.new("BillboardGui");bb.Name="SlaxrItemESPLabel";bb.Size=UDim2.new(0,110,0,28);bb.StudsOffset=Vector3.new(0,3,0);bb.AlwaysOnTop=true;bb.Parent=anc;table.insert(ITEM_ESP_OBJECTS,bb)
-     local lb=Instance.new("TextLabel",bb);lb.Size=UDim2.new(1,0,1,0);lb.BackgroundTransparency=1;lb.Text=lbl;lb.TextColor3=clr;lb.TextSize=13;lb.Font=Enum.Font.GothamBold;lb.TextStrokeTransparency=0.5;lb.TextStrokeColor3=Color3.fromRGB(0,0,0)
-    end
-   end
-   local tot=0;local all=workspace:GetDescendants()
-   for ik,id in pairs(GET_ITEMS) do
-    local sn={};local mId=id.mesh and nId(id.mesh);local tId=id.texture and nId(id.texture)
-    for i,o in ipairs(all) do
-     if i%200==0 then task.wait() end;local oc=o.ClassName
-     local ok,h=pcall(function()
-      if oc=="SpecialMesh" or oc=="FileMesh" then return (mId and nId(o.MeshId)==mId) or (tId and nId(o.TextureId)==tId)
-      elseif oc=="MeshPart" then return (mId and nId(o.MeshId)==mId) or (tId and nId(o.TextureId)==tId)
-      elseif oc=="Texture" or oc=="Decal" then return tId and nId(o.Texture)==tId
-      end;return false
-     end)
-     if ok and h then
-      local a=o.Parent;while a and a~=workspace do if a:IsA("Model") then break end;a=a.Parent end
-      local tg=(a and a~=workspace and a:IsA("Model")) and a or (o:IsA("BasePart") and o) or (o.Parent and o.Parent:IsA("BasePart") and o.Parent)
-      if tg and not sn[tg] then sn[tg]=true;tot=tot+1;addHL(tg,id.label,CLR[ik] or Color3.fromRGB(100,200,255)) end
-     end
-    end
-   end
-   ITEM_ESP_ACTIVE=true;CmdFeedback.TextColor3=Color3.fromRGB(0,220,80);CmdFeedback.Text="✅ Item ESP — "..tot.." items"
-   Notify("ItemESP","✅ ESP on — "..tot.." items")
-  end);return
- end
- if cmd=="unitemesp" then
-  if not ITEM_ESP_ACTIVE and #ITEM_ESP_OBJECTS==0 then CmdFeedback.TextColor3=Color3.fromRGB(255,180,50);CmdFeedback.Text="Item ESP not active";return end
-  for _,o in ipairs(ITEM_ESP_OBJECTS) do pcall(function() o:Destroy() end) end
-  ITEM_ESP_OBJECTS={};ITEM_ESP_ACTIVE=false;CmdFeedback.TextColor3=Color3.fromRGB(0,220,80)
-  CmdFeedback.Text="✅ Item ESP removed";Notify("ItemESP","✅ Removed");return
- end
-
- -- HELP command (alias)
+ -- HELP command: quick start guide
  if cmd == "help" then
- CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 255)
- CmdFeedback.Text = "type 'cmd' to open the command list"
- return
+  CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 255)
+  CmdFeedback.Text = "Try: bind aimlock f  | unbind aimlock  |  get money  |  cmd"
+  return
  end
 
- -- CMD command: open the command list popup
+ -- CMD list visibility command: cmd  (only opens; close via the ✕ button)
  if cmd == "cmd" then
- CmdPopup.Visible = not CmdPopup.Visible
- CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 255)
- CmdFeedback.Text = CmdPopup.Visible and "Command list opened" or "Command list closed"
- return
+  CmdPopup.Visible = true
+  CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
+  CmdFeedback.Text = "Opened command list  (press ✕ to close)"
+  return
  end
 
- -- CHATENABLE command: re-enable Roblox chat window and input bar
+ -- CHATENABLE command: re-enable Roblox chat
  if cmd == "chatenable" then
- local TCS = game:GetService("TextChatService")
- -- Enable chat window
- local CWC = TCS:FindFirstChildOfClass("ChatWindowConfiguration")
- if CWC then
- CWC.Enabled = true
- end
- -- Enable chat input bar
- local CIBC = TCS:FindFirstChildOfClass("ChatInputBarConfiguration")
- if CIBC then
- CIBC.Enabled = true
- end
- -- Legacy chat fallback
- local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
- if isLegacy then
- pcall(function()
- game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Chat").Enabled = true
- end)
- end
- CmdFeedback.TextColor3 = Color3.fromRGB(80, 255, 120)
- CmdFeedback.Text = "Chat enabled!"
- return
+  pcall(function()
+   game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Chat, true)
+  end)
+  CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
+  CmdFeedback.Text = "Enabled Roblox Chat"
+  return
  end
 
- -- REJOIN command: teleport back into the same server
+ -- REJOIN command: server hop back into the same server
  if cmd == "rejoin" then
-  CmdFeedback.TextColor3 = Color3.fromRGB(180,180,255)
-  CmdFeedback.Text = "🔄 Rejoining server..."
-  Notify("Rejoin","🔄 Rejoining...")
-  task.delay(1.5, function()
-   pcall(function()
-    game:GetService("TeleportService"):TeleportToPlaceInstance(
-     game.PlaceId, game.JobId,
-     game:GetService("Players").LocalPlayer
-    )
-   end)
+  CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+  CmdFeedback.Text = "Rejoining server..."
+  task.wait(0.5)
+  local ts = game:GetService("TeleportService")
+  pcall(function()
+   ts:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
   end)
   return
  end
 
- -- RAINBOWHATS command: toggle RGB cycling on phone hat colors
+ -- RAINBOW HATS toggle handler
  if cmd == "rainbowhats" then
   RAINBOWHATS_ENABLED = not RAINBOWHATS_ENABLED
   CmdFeedback.TextColor3 = RAINBOWHATS_ENABLED and Color3.fromRGB(0, 220, 80) or Color3.fromRGB(255, 80, 80)
@@ -2078,91 +2023,776 @@ local function ParseCommand(raw)
   return
  end
 
+ -- CAMLOCK {player} command: sets camlock target and enables camlock
+ -- Also: "camlock off" or "camlock none" clears the target
+ if cmd == "camlock" then
+  if #parts >= 2 then
+   local arg = parts[2]:lower()
+   if arg == "off" or arg == "none" or arg == "clear" then
+    -- Disable camlock and clear target
+    CAMLOCK_ENABLED = false
+    CamlockToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+    CamlockToggle.Text = "Camlock: Disabled"
+    SetCamlockTarget(nil)
+    CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+    CmdFeedback.Text = "Camlock cleared"
+    Notify("Camlock", "🔴 Cleared")
+   else
+    local target = FindPlayerByName(parts[2])
+    if target then
+     SetCamlockTarget(target)
+     CAMLOCK_ENABLED = true
+     CamlockToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+     CamlockToggle.Text = "Camlock: Enabled"
+     CmdFeedback.TextColor3 = Color3.fromRGB(0, 220, 80)
+     CmdFeedback.Text = "Camlock → " .. target.Name
+     Notify("Camlock", "🟢 Locked onto " .. target.Name)
+    else
+     CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+     CmdFeedback.Text = "Player not found: " .. parts[2]
+    end
+   end
+  else
+   -- No argument: toggle camlock on/off (existing behavior)
+   FireToggle("camlock")
+  end
+  return
+ end
+
+ -- AIMLOCK {player} command: sets name aimlock target and enables aimlock
+ -- Also: "aimlock off" or "aimlock none" clears
+ if cmd == "aimlock" then
+  if #parts >= 2 then
+   local arg = parts[2]:lower()
+   if arg == "off" or arg == "none" or arg == "clear" then
+    -- Turn everything off
+    Aiming.Enabled = false
+    Settings.Enabled = false
+    ToggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+    ToggleBtn.Text = "Disabled CursorLock"
+    SetAimlockTarget(nil)
+    CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+    CmdFeedback.Text = "Aimlock cleared"
+    Notify("Aimlock", "🔴 Cleared")
+   else
+    local target = FindPlayerByName(parts[2])
+    if target then
+     -- Enable cursor lock + name lock on this specific player
+     Aiming.Enabled = true
+     Settings.Enabled = true
+     ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+     ToggleBtn.Text = "Enabled CursorLock"
+     SetAimlockTarget(target)
+     CmdFeedback.TextColor3 = Color3.fromRGB(0, 220, 80)
+     CmdFeedback.Text = "Aimlock → " .. target.Name
+     Notify("Aimlock", "🟢 Locked onto " .. target.Name)
+    else
+     CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+     CmdFeedback.Text = "Player not found: " .. parts[2]
+    end
+   end
+  else
+   -- No argument: toggle aimlock on/off (existing behavior)
+   FireToggle("aimlock")
+  end
+  return
+ end
+
+ -- ESP {player} command: toggle ESP on a specific player via command
+ -- "esp all" enables all, "esp off"/"esp none" disables all
+ if cmd == "esp" then
+  if #parts >= 2 then
+   local arg = parts[2]:lower()
+   if arg == "all" then
+    ESP_All = true
+    ESP_Players = {}
+    UpdateESPBtnLabel()
+    CmdFeedback.TextColor3 = Color3.fromRGB(0, 220, 80)
+    CmdFeedback.Text = "ESP: All players"
+    Notify("ESP", "🟢 All players")
+   elseif arg == "off" or arg == "none" or arg == "clear" then
+    ESP_All = false
+    ESP_Players = {}
+    UpdateESPBtnLabel()
+    CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+    CmdFeedback.Text = "ESP cleared"
+    Notify("ESP", "🔴 Cleared")
+   else
+    local target = FindPlayerByName(parts[2])
+    if target then
+     -- Toggle ESP for that player
+     if ESP_All then
+      ESP_All = false
+      ESP_Players = {}
+     end
+     if ESP_Players[target] then
+      ESP_Players[target] = nil
+      CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+      CmdFeedback.Text = "ESP removed: " .. target.Name
+      Notify("ESP", "🔴 Removed " .. target.Name)
+     else
+      ESP_Players[target] = true
+      CmdFeedback.TextColor3 = Color3.fromRGB(0, 220, 80)
+      CmdFeedback.Text = "ESP → " .. target.Name
+      Notify("ESP", "🟢 " .. target.Name)
+     end
+     UpdateESPBtnLabel()
+    else
+     CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+     CmdFeedback.Text = "Player not found: " .. parts[2]
+    end
+   end
+  else
+   CmdFeedback.TextColor3 = Color3.fromRGB(200, 200, 200)
+   CmdFeedback.Text = "Usage: esp {player} | esp all | esp off"
+  end
+  return
+ end
+
+ -- FLY command: enable fly
+ if cmd == "fly" then
+  if not FLY_ENABLED then
+   FLY_ENABLED = true
+   FLY_SPEED = 50 -- Force speed to 50 on command
+   FlySpeedLabel.Text = "Fly Speed: 50"
+   FlySpeedKnob.Position = UDim2.new((50 - 10) / 290, -8, 0.5, -8)
+
+   FlyToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+   FlyToggle.Text = "Fly: Enabled"
+   StartFly()
+   Notify("Fly", "🟢 Fly ON")
+   CmdFeedback.TextColor3 = Color3.fromRGB(0, 220, 80)
+   CmdFeedback.Text = "Fly enabled"
+  else
+   CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 180)
+   CmdFeedback.Text = "Fly is already on (use unfly to stop)"
+  end
+  return
+ end
+
+ -- UNFLY command: disable fly
+ if cmd == "unfly" then
+  if FLY_ENABLED then
+   FLY_ENABLED = false
+   FlyToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+   FlyToggle.Text = "Fly: Disabled"
+   StopFly()
+   Notify("Fly", "🔴 Fly OFF")
+   CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+   CmdFeedback.Text = "Fly disabled"
+  else
+   CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 180)
+   CmdFeedback.Text = "Fly is already off"
+  end
+  return
+ end
+
+ -- UNAIMLOCK command: turn off ALL aimlock and sync GUI
+ if cmd == "unaimlock" then
+  Aiming.Enabled = false
+  Settings.Enabled = false
+  ToggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+  ToggleBtn.Text = "Disabled CursorLock"
+  SetAimlockTarget(nil)
+  _lastNameAimlockTarget = nil
+  Notify("Aimlock", "🔴 All aimlock OFF")
+  CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+  CmdFeedback.Text = "All aimlock cleared"
+  return
+ end
+
+ -- BIND command: bind [toggleName] [key]
+ if cmd == "bind" then
+  if #parts < 3 then
+   CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+   CmdFeedback.Text = "Usage: bind [toggleName] [key]"
+   return
+  end
+  local toggleName = parts[2]:lower()
+  local keyStr = parts[3]:lower()
+
+  if not VALID_TOGGLES[toggleName] then
+   CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+   CmdFeedback.Text = "Unknown toggle: " .. toggleName
+   return
+  end
+
+  local keyEnumName = ResolveKeyCode(keyStr)
+  if not keyEnumName then
+   CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+   CmdFeedback.Text = "Invalid key: " .. keyStr
+   return
+  end
+
+  -- Save bind
+  Binds[toggleName] = Enum.KeyCode[keyEnumName:split(".")[2]]
+  CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
+  CmdFeedback.Text = "Bound " .. toggleName .. " to " .. keyStr:upper()
+  Notify("Bind Set", "🔑 " .. toggleName .. " → " .. keyStr:upper())
+  return
+ end
+
+ -- UNBIND command: unbind
+ if cmd == "unbind" then
+  if #parts < 2 then
+   CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+   CmdFeedback.Text = "Usage: unbind  | unbind all"
+   return
+  end
+  local toggleName = parts[2]:lower()
+  -- UNBIND ALL: clear every bind at once
+  if toggleName == "all" then
+   local count = 0
+   for k in pairs(Binds) do Binds[k] = nil; count = count + 1 end
+   CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+   CmdFeedback.Text = "Unbound all (" .. count .. ") binds"
+   Notify("Unbind All", "🔴 Cleared " .. count .. " bind(s)")
+   return
+  end
+  if not VALID_TOGGLES[toggleName] then
+   CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+   CmdFeedback.Text = "Unknown toggle: " .. toggleName
+   return
+  end
+  if Binds[toggleName] then
+   local oldKey = tostring(Binds[toggleName]):gsub("Enum.KeyCode.", "")
+   Binds[toggleName] = nil
+   CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+   CmdFeedback.Text = "Unbound " .. toggleName
+   Notify("Unbound", "🔴 " .. toggleName .. " (" .. oldKey .. ") removed")
+  else
+   CmdFeedback.TextColor3 = Color3.fromRGB(160, 160, 160)
+   CmdFeedback.Text = toggleName .. " has no bind"
+  end
+  return
+ end
+
+ -- BINDS command: list all current binds
+ if cmd == "binds" then
+  local out = ""
+  for name, key in pairs(Binds) do
+   out = out .. name .. "=" .. tostring(key).." "
+  end
+  CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 255)
+  CmdFeedback.Text = out ~= "" and ("Binds: " .. out) or "No binds set"
+  return
+ end
+
+ -- GET command: teleport to a gun model in the world
+ if cmd == "get" then
+  if #parts < 2 then
+   CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+   CmdFeedback.Text = "Usage: get (e.g. get money)"
+   return
+  end
+
+  -- Map of item keyword → exact workspace model name
+  local ITEM_MAP = {
+   ["ammo"] = "Buy Ammo | $25",
+  }
+
+  -- Items where multiple copies exist in the world; pick the closest one.
+  local FIND_CLOSEST = {
+   ["Buy Ammo | $25"] = true,
+  }
+
+  local itemKey=parts[2]:lower()
+  local iDef=GET_ITEMS[itemKey]
+  if iDef then
+   local function nId(s) return tostring(s):lower():gsub("%s+","") end
+   local function mI(o)
+    local c=o.ClassName;local m=iDef.mesh and nId(iDef.mesh);local t=iDef.texture and nId(iDef.texture)
+    if c=="SpecialMesh" or c=="FileMesh" then return (m and nId(o.MeshId)==m) or (t and nId(o.TextureId)==t)
+    elseif c=="MeshPart" then return (m and nId(o.MeshId)==m) or (t and nId(o.TextureId)==t)
+    elseif c=="Texture" or c=="Decal" then return t and nId(o.Texture)==t
+    end;return false
+   end
+   CmdFeedback.TextColor3=Color3.fromRGB(255,215,0)
+   CmdFeedback.Text="🔍 Scanning for "..itemKey.."..."
+   Notify("Get","🔍 "..itemKey)
+   task.spawn(function()
+    local fd,sn={},{}
+    for i,o in ipairs(workspace:GetDescendants()) do
+     if i%200==0 then task.wait() end
+     local ok,h=pcall(mI,o)
+     if ok and h then
+      local a=o.Parent
+      while a and a~=workspace do if a:IsA("Model") then break end;a=a.Parent end
+      local tg=(a and a~=workspace and a:IsA("Model")) and a or (o:IsA("BasePart") and o) or (o.Parent and o.Parent:IsA("BasePart") and o.Parent)
+      if tg and not sn[tg] then sn[tg]=true;table.insert(fd,tg) end
+     end
+    end
+    if #fd==0 then CmdFeedback.TextColor3=Color3.fromRGB(255,80,80);CmdFeedback.Text="No "..itemKey.." found";Notify("Get","❌ Not found");return end
+    local hn=LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart");local cl=fd[1]
+    if hn and #fd>1 then local b=math.huge
+     for _,m in ipairs(fd) do local p
+      if m:IsA("Model") then p=m.PrimaryPart and m.PrimaryPart.Position;if not p then for _,v in pairs(m:GetDescendants()) do if v:IsA("BasePart") then p=v.Position;break end end end
+      elseif m:IsA("BasePart") then p=m.Position end
+      if p then local d=(p-hn.Position).Magnitude;if d > 0.01 then hn.CFrame=CFrame.lookAt(hn.Position,p) end end
+     end
+    end
+    local tp;if cl:IsA("Model") then tp=cl.PrimaryPart and cl.PrimaryPart.Position
+     if not tp then for _,v in pairs(cl:GetDescendants()) do if v:IsA("BasePart") then tp=v.Position;break end end end
+    elseif cl:IsA("BasePart") then tp=cl.Position end
+    if not tp then CmdFeedback.TextColor3=Color3.fromRGB(255,80,80);CmdFeedback.Text="No position";return end
+    if tp.Y < -50 then CmdFeedback.TextColor3=Color3.fromRGB(255,140,0);CmdFeedback.Text="⚠️ "..itemKey.." appears to be in the void — skipped";return end
+    local ch=LocalPlayer.Character;local hr=ch and ch:FindFirstChild("HumanoidRootPart")
+    if not hr then CmdFeedback.TextColor3=Color3.fromRGB(255,80,80);CmdFeedback.Text="No HRP";return end
+    
+    local _wasNoclip = NOCLIP_ENABLED
+    NOCLIP_ENABLED = true
+    
+    local dY = (tp.Y - hr.Position.Y)
+    local steps = math.max(1, math.floor(math.abs(dY)/12))
+    for i=1,steps do
+     if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return end
+     hr.CFrame = hr.CFrame + Vector3.new(0, dY/steps, 0)
+     task.wait(0.04)
+    end
+    
+    local startPos = hr.Position
+    local path = tp - startPos
+    local dist = path.Magnitude
+    local sSpeed = 160
+    local stepCount = math.max(1, math.floor(dist / (sSpeed * 0.03)))
+    for i=1,stepCount do
+     if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return end
+     local fp = startPos + (path * (i/stepCount))
+     hr.CFrame = CFrame.new(fp)
+     task.wait(0.03)
+    end
+    
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+     hr.CFrame = CFrame.new(tp + Vector3.new(0, 3, 0))
+    end
+    task.wait(0.2)
+  
+    local prompt = cl:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt then
+     pcall(function()
+      prompt.MaxActivationDistance = 999
+      prompt.HoldDuration = 0
+      prompt.RequiresLineOfSight = false
+      prompt:InputHoldBegin()
+      task.wait(prompt.HoldDuration)
+      prompt:InputHoldEnd()
+     end)
+    end
+    task.wait(0.1)
+    
+    -- Restore noclip to its previous state after arrival
+    if not _wasNoclip then
+     NOCLIP_ENABLED = false
+     NoclipToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+     NoclipToggle.Text = "Noclip: Disabled"
+    end
+    CmdFeedback.TextColor3=Color3.fromRGB(0,220,80);CmdFeedback.Text="✅ Arrived at "..itemKey.."!"
+    Notify("Get","✅ "..itemKey)
+   end);return
+  end
+
+  local modelName = ITEM_MAP[itemKey]
+  if not modelName then
+   CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+   CmdFeedback.Text = "Unknown item: " .. itemKey .. " (try: uzi)"
+   return
+  end
+
+  -- Search the whole workspace recursively.
+  local model
+  if FIND_CLOSEST[modelName] then
+   local hrpNow = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+   local bestDist = math.huge
+   for _, obj in pairs(workspace:GetDescendants()) do
+    if obj.Name == modelName then
+     local pos
+     if obj:IsA("Model") then
+      pos = obj.PrimaryPart and obj.PrimaryPart.Position
+       or (function()
+        for _, v in pairs(obj:GetDescendants()) do
+         if v:IsA("BasePart") then return v.Position end
+        end
+       end)()
+     elseif obj:IsA("BasePart") then
+      pos = obj.Position
+     end
+     if pos and hrpNow then
+      local d = (pos - hrpNow.Position).Magnitude
+      if d < bestDist then bestDist = d; model = obj end
+     end
+    end
+   end
+  else
+   model = workspace:FindFirstChild(modelName, true)
+  end
+  if not model then
+   CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+   CmdFeedback.Text = modelName .. " not found in workspace"
+   return
+  end
+
+  -- Resolve the target position from the model
+  local targetPos
+  if model:IsA("Model") then
+   if model.PrimaryPart then
+    targetPos = model.PrimaryPart.Position
+   else
+    for _, v in pairs(model:GetDescendants()) do
+     if v:IsA("BasePart") then
+      targetPos = v.Position
+      break
+     end
+    end
+   end
+  elseif model:IsA("BasePart") then
+   targetPos = model.Position
+  end
+
+  if not targetPos then
+   CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+   CmdFeedback.Text = "Couldn't find position for " .. modelName
+   return
+  end
+
+  -- Make sure the player has a character
+  local character = LocalPlayer.Character
+  local hrp = character and character:FindFirstChild("HumanoidRootPart")
+  if not hrp then
+   CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
+   CmdFeedback.Text = "No character — respawn and try again"
+   return
+  end
+
+  -- Bypassed teleport with auto-retry until the tool appears in inventory
+  local destCFrame = CFrame.new(targetPos + Vector3.new(0, 4, 0))
+
+  -- Strip suffix to get the bare tool name used inside Backpack
+  local baseName = (modelName:match("^(.-)%s*\|") or modelName):match("^%s*(.-)%s*$")
+
+  local function toolInInventory()
+   local containers = { LocalPlayer.Backpack }
+   if LocalPlayer.Character then
+    table.insert(containers, LocalPlayer.Character)
+   end
+   for _, container in pairs(containers) do
+    for _, item in pairs(container:GetChildren()) do
+     if item:IsA("Tool") then
+      local n = item.Name
+      if n == modelName or n == baseName
+         or n:lower():find(baseName:lower(), 1, true) then
+       return true
+      end
+     end
+    end
+   end
+   return false
+  end
+
+  CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
+  CmdFeedback.Text = "Going to " .. modelName .. "..."
+  Notify("Get", "📦 Going to " .. modelName)
+
+  task.spawn(function()
+   -- "get ammo" teleports once and stops; other items retry up to 20 times.
+   local MAX_ATTEMPTS = (itemKey == "ammo") and 1 or 20
+   local attempt = 0
+
+   while attempt < MAX_ATTEMPTS and not toolInInventory() do
+    attempt = attempt + 1
+
+    -- TP Walk toward the LOCKED model only
+    do
+     local STEP_SPEED = 180 -- studs per second
+     local ARRIVE_DIST = 0.5 -- land directly ON the model
+     local MAX_STEPS = 400 -- hard cap so it can't loop forever
+     local finalPos = nil -- track where we stop so we can face it
+
+     for _ = 1, MAX_STEPS do
+      -- Re-read the model's live world position each frame (tracks if it moves)
+      local livePos
+     
+      if model:IsA("Model") then
+       livePos = model.PrimaryPart and model.PrimaryPart.Position
+       if not livePos then
+        for _, v in pairs(model:GetDescendants()) do
+         if v:IsA("BasePart") then livePos = v.Position; break end
+        end
+       end
+      elseif model:IsA("BasePart") then
+       livePos = model.Position
+      end
+      if not livePos then break end -- model disappeared
+      finalPos = livePos
+      -- No y-offset: walk straight onto the model's position
+      local diff = livePos - hrp.Position
+      if diff.Magnitude <= ARRIVE_DIST then break end
+  
+      hrp.CFrame = hrp.CFrame + diff.Unit * math.min(STEP_SPEED * 0.016, diff.Magnitude)
+      task.wait() -- one frame, same as Heartbeat in TP Walk
+     end
+
+     -- Snap HRP to face the model
+     if finalPos then
+      local lookDir = (finalPos - hrp.Position)
+      if lookDir.Magnitude > 0.01 then
+       hrp.CFrame = CFrame.lookAt(hrp.Position, finalPos)
+      end
+     end
+    end
+    task.wait(0.05)
+
+    -- Fire the ProximityPrompt on the LOCKED model only
+    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt then
+     pcall(function()
+      prompt.MaxActivationDistance = 999
+      prompt.HoldDuration = 0
+      prompt.RequiresLineOfSight = false
+      prompt:InputHoldBegin()
+      task.wait(prompt.HoldDuration)
+      prompt:InputHoldEnd()
+     end)
+    end
+    task.wait(0.15)
+   end
+
+   if toolInInventory() then
+    CmdFeedback.TextColor3 = Color3.fromRGB(0, 220, 80)
+    CmdFeedback.Text = "✅ Successfully obtained " .. baseName .. "!"
+    Notify("Get", "✅ Got " .. baseName)
+   else
+    CmdFeedback.TextColor3 = Color3.fromRGB(255, 120, 0)
+    CmdFeedback.Text = "⚠️ Finished teleport sequence for " .. baseName
+    Notify("Get", "⚠️ Done (" .. baseName .. ")")
+   end
+  end)
+  return
+ end
+
+ -- ITEM ESP command: itemesp
+ if cmd == "itemesp" then
+  if ITEM_ESP_ACTIVE then
+   CmdFeedback.TextColor3 = Color3.fromRGB(255, 150, 0)
+   CmdFeedback.Text = "Item ESP is already enabled"
+   return
+  end
+  ITEM_ESP_ACTIVE = true
+  CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
+  CmdFeedback.Text = "Item ESP Enabled"
+ 
+  Notify("ESP", "Scannable Item ESP: Active")
+  -- Spawn scannable items search routine
+  task.spawn(function()
+   while ITEM_ESP_ACTIVE do
+    -- Clean up old drawings
+    for _, obj in ipairs(ITEM_ESP_OBJECTS) do
+     pcall(function() obj:Destroy() end)
+    end
+    ITEM_ESP_OBJECTS = {}
+
+    -- Full recursive scans
+    for _, desc in ipairs(workspace:GetDescendants()) do
+     if not ITEM_ESP_ACTIVE then break end
+     local matchKey, matchDef = nil, nil
+     for k, def in pairs(GET_ITEMS) do
+ 
+      local function nId(s) return tostring(s):lower():gsub("%s+","") end
+      local c = desc.ClassName
+      local m = def.mesh and nId(def.mesh)
+      local t = def.texture and nId(def.texture)
+      local isM = false
+      if c == "SpecialMesh" or c == "FileMesh" then
+       isM = (m and nId(desc.MeshId) == m) or (t and nId(desc.TextureId) == t)
+      elseif c == "MeshPart" then
+       
+       isM = (m and nId(desc.MeshId) == m) or (t and nId(desc.TextureId) == t)
+      elseif c == "Texture" or c == "Decal" then
+       isM = t and nId(desc.Texture) == t
+      end
+      if isM then matchKey = k; matchDef = def; break end
+     end
+
+     if matchKey and matchDef then
+      -- Locate parent base model
+      local parentModel = desc.Parent
+      while parentModel and parentModel ~= workspace do
+       if parentModel:IsA("Model") then break end
+       parentModel = parentModel.Parent
+      end
+      local basePart = (parentModel and parentModel:IsA("Model") and parentModel.PrimaryPart) 
+       or (desc:IsA("BasePart") and desc)
+ 
+       or (desc.Parent and desc.Parent:IsA("BasePart") and desc.Parent)
+
+      if basePart then
+       pcall(function()
+        local Billboard = Instance.new("BillboardGui")
+        Billboard.Name = "SlaxItemESP"
+        Billboard.Adornee = basePart
+        Billboard.Size = UDim2.new(0, 150, 0, 40)
+        Billboard.StudsOffset = Vector3.new(0, 1.5, 0)
+        Billboard.AlwaysOnTop = true
+        
+        Billboard.Parent = basePart
+
+        local Label = Instance.new("TextLabel")
+        Label.Size = UDim2.new(1, 0, 1, 0)
+        Label.BackgroundTransparency = 1
+        Label.Text = matchDef.label
+        Label.TextColor3 = Color3.fromRGB(0, 255, 180)
+        Label.TextStrokeColor3 = Color3.new(0, 0, 0)
+        Label.TextStrokeTransparency = 0.3
+        Label.Font = Enum.Font.SourceSansBold
+        Label.TextSize = 13
+        Label.Parent = Billboard
+
+        table.insert(ITEM_ESP_OBJECTS, Billboard)
+       end)
+      end
+     end
+    end
+    task.wait(4.0) -- update interval rate
+   end
+  end)
+  return
+ end
+
+ -- UNITEMESP command: disable item esp
+ if cmd == "unitemesp" then
+  if not ITEM_ESP_ACTIVE then
+   CmdFeedback.TextColor3 = Color3.fromRGB(160, 160, 160)
+   CmdFeedback.Text = "Item ESP is already disabled"
+   return
+  end
+  ITEM_ESP_ACTIVE = false
+  
+  for _, obj in ipairs(ITEM_ESP_OBJECTS) do
+   pcall(function() obj:Destroy() end)
+  end
+  ITEM_ESP_OBJECTS = {}
+  CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+  CmdFeedback.Text = "Item ESP Disabled"
+  Notify("ESP", "Scannable Item ESP: Removed")
+  return
+ end
+
  CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
  CmdFeedback.Text = "Unknown command: " .. cmd .. " (try: cmd)"
 end
 
--- Submit on Enter
-CmdBox.FocusLost:Connect(function(enterPressed)
+-- CmdBarBox FocusLost: submit on enter, slide out, run command async (no crash)
+CmdBarBox.FocusLost:Connect(function(enterPressed)
  if enterPressed then
- ParseCommand(CmdBox.Text)
- CmdBox.Text = ""
- end
-end)
-
--- Listen for bind keystrokes globally (only when GUI not focused)
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
- -- Block binds if ANY text box is focused (chat bar, cmd box, any input field)
- if UserInputService:GetFocusedTextBox() then return end
- for toggleName, keyEnum in pairs(Binds) do
- if input.KeyCode == keyEnum then
- if toggleName == "keylock" then
- -- Keylock: project every player's HumanoidRootPart to screen space
- -- and pick whoever is closest to the mouse cursor.
- -- No raycast = no distance limit, works through walls, any range.
- local camera = workspace.CurrentCamera
- local mousePos = UserInputService:GetMouseLocation()
- local closestPlr = nil
- local closestDist = math.huge
- for _, plr in pairs(Players:GetPlayers()) do
- if plr ~= LocalPlayer and plr.Character then
- local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
- if hrp then
- local screenPos, onScreen = camera:WorldToScreenPoint(hrp.Position)
- if onScreen then
- local d = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
- if d < closestDist then
- closestDist = d
- closestPlr = plr
- end
- end
- end
- end
- end
- if closestPlr then
- -- Atomic swap: never set ENABLED = false so aimlock
- -- stays hot the whole time while switching targets.
- NAME_AIMLOCK_TARGET = closestPlr
- NAME_AIMLOCK_ENABLED = true
- -- Sync UI so dropdown reflects the new target
- NameAimlockLabel.Text = "Name Aimlock: " .. closestPlr.Name
- AimlockDropBtn.Text = "▼ " .. closestPlr.Name
- AimlockDropBtn.TextColor3 = Color3.fromRGB(255, 200, 50)
- NameAimlockStatus.Text = "Status: LOCKED"
- NameAimlockStatus.TextColor3 = Color3.fromRGB(0, 200, 80)
- Aiming.ShowFOV = false
- Aiming.FOV = 9999
- Settings.ShowFOV = false
- Settings.FOV = 9999
- FOVCircleToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
- FOVCircleToggle.Text = "CursorLock Circle: Hidden"
- Notify("Keylock", "[LOCKED] " .. closestPlr.Name)
- end
+  CmdFeedback = MainCmdFeedback
+  local txt = CmdBarBox.Text
+  CmdBarBox.Text = ""
+  SlideCmdBarOut()
+  task.spawn(ParseCommand, txt)
  else
- FireToggle(toggleName)
- end
- end
+  -- Lost focus without enter: slide out after short delay
+  
+  cmdBarCloseThread = task.delay(0.4, function()
+   cmdBarCloseThread = nil -- FIX: sever the tie
+   if not CmdBarBox:IsFocused() then
+    SlideCmdBarOut()
+   end
+  end)
  end
 end)
 
--- Clear feedback after 4 seconds automatically
+-- K key: show/hide main GUI panel; also fire bound hotkeys
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+ if gameProcessed then return end
+
+ -- Fire any bound feature keys
+ for toggleName, boundKey in pairs(Binds) do
+  if input.KeyCode == boundKey then
+   FireToggle(toggleName)
+  end
+ end
+
+ if input.KeyCode == Enum.KeyCode.K then
+  Frame.Visible = not Frame.Visible
+  HideSideCommandBar()
+  SlideCmdBarOut()
+ end
+end)
+
+-- Semicolon/Colon key: toggle the sliding command bar strip open/closed
+local function handleCmdOpen(actionName, inputState, inputObject)
+ if inputState ~= Enum.UserInputState.Begin then
+  return Enum.ContextActionResult.Pass
+ end
+
+ local focusedTextBox = UserInputService:GetFocusedTextBox()
+
+ -- Already typing in the command bar box: let it type normally
+ if focusedTextBox == CmdBarBox then
+  return Enum.ContextActionResult.Pass
+ end
+
+ -- Also pass through if typing in side bar
+ if focusedTextBox == SideCmdBox then
+  return Enum.ContextActionResult.Pass
+ end
+
+ -- Toggle: if open slide out, if closed slide in
+ if isCmdBarOpen then
+  SlideCmdBarOut()
+ else
+  SlideCmdBarIn()
+ end
+ return Enum.ContextActionResult.Sink
+end
+
+ContextActionService:BindAction("ColonBind", handleCmdOpen, false, Enum.KeyCode.Semicolon)
+
+-- Clear feedback after 4 seconds automatically for both main and side feedback labels
 local lastFeedbackTime = 0
+local lastSideFeedbackTime = 0
 task.spawn(function()
  while true do
- task.wait(1)
- if CmdFeedback.Text ~= "" then
- lastFeedbackTime = lastFeedbackTime + 1
- if lastFeedbackTime >= 4 then
- CmdFeedback.Text = ""
- lastFeedbackTime = 0
- end
- else
- lastFeedbackTime = 0
- end
+  task.wait(1)
+  if MainCmdFeedback.Text ~= "" then
+   lastFeedbackTime = lastFeedbackTime + 1
+   if lastFeedbackTime >= 4 then
+    MainCmdFeedback.Text = ""
+    lastFeedbackTime = 0
+   end
+  else
+  
+   lastFeedbackTime = 0
+  end
+  
+  if SideCmdFeedback.Text ~= "" then
+   lastSideFeedbackTime = lastSideFeedbackTime + 1
+   if lastSideFeedbackTime >= 4 then
+    SideCmdFeedback.Text = ""
+    lastSideFeedbackTime = 0
+   end
+  else
+   lastSideFeedbackTime = 0
+  end
  end
 end)
 
-print("✅ Command Bar Loaded | try: bind aimlock f")
+-- Rainbow (RGB) effect for Slaxware text
+task.spawn(function()
+ while true do
+  local hue = (tick() % 5) / 5 -- Cycle hue every 5 seconds
+  local color = Color3.fromHSV(hue, 1, 1)
+  if Title then
+   Title.TextColor3 = color
+  end
+  if SideTitle then
+  
+   SideTitle.TextColor3 = color
+  end
+  task.wait()
+ end
+end)
+
+print("✅ SlaxWare Loaded | Press : to open command bar | K to toggle main GUI")
 
 -- // ESP - Full Body Highlight + Classic Nametags
 _G.FriendColor = Color3.fromRGB(0, 0, 255)
@@ -2173,7 +2803,7 @@ local function CreateFullHighlight(character, player)
  if not character or not ShouldESP(player) then return end
 
  for _, v in pairs(character:GetChildren()) do
- if v:IsA("Highlight") and v.Name == "SlaxrFullESP" then v:Destroy() end
+  if v:IsA("Highlight") and v.Name == "SlaxrFullESP" then v:Destroy() end
  end
 
  local highlight = Instance.new("Highlight")
@@ -2185,9 +2815,9 @@ local function CreateFullHighlight(character, player)
  highlight.OutlineColor = Color3.new(1, 1, 1)
 
  if _G.UseTeamColor and player.TeamColor then
- highlight.FillColor = player.TeamColor.Color
+  highlight.FillColor = player.TeamColor.Color
  else
- highlight.FillColor = (LocalPlayer.TeamColor == player.TeamColor) and _G.FriendColor or _G.EnemyColor
+  highlight.FillColor = (LocalPlayer.TeamColor == player.TeamColor) and _G.FriendColor or _G.EnemyColor
  end
 
  highlight.Parent = character
@@ -2197,30 +2827,31 @@ local function CreateNametag(player)
  if player == LocalPlayer then return end
 
  local function Setup(char)
- if not char or not char:FindFirstChild("Head") then return end
- local Head = char.Head
+  if not char or not char:FindFirstChild("Head") then return end
+  local Head = char.Head
 
- local old = Head:FindFirstChild("SlaxrNametag")
- if old then old:Destroy() end
+  local old = Head:FindFirstChild("SlaxrNametag")
+  if old then old:Destroy() end
 
- local BillboardGui = Instance.new("BillboardGui")
- BillboardGui.Name = "SlaxrNametag"
- BillboardGui.Adornee = Head
- BillboardGui.Size = UDim2.new(0, 200, 0, 50)
- BillboardGui.StudsOffset = Vector3.new(0, 2.5, 0)
- BillboardGui.AlwaysOnTop = true
- BillboardGui.Parent = Head
+  local BillboardGui = Instance.new("BillboardGui")
+  BillboardGui.Name = "SlaxrNametag"
+  BillboardGui.Adornee = Head
+  BillboardGui.Size = UDim2.new(0, 200, 0, 50)
+  BillboardGui.StudsOffset = Vector3.new(0, 2.5, 0)
+  BillboardGui.AlwaysOnTop = true
+  BillboardGui.Parent = Head
 
- local TextLabel = Instance.new("TextLabel")
- TextLabel.Size = UDim2.new(1, 0, 1, 0)
- TextLabel.BackgroundTransparency = 1
- TextLabel.Text = player.Name
- TextLabel.TextColor3 = Color3.new(1, 1, 1)
- TextLabel.TextStrokeTransparency = 0.4
- TextLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
- TextLabel.Font = Enum.Font.SourceSansBold
- TextLabel.TextSize = 16
- TextLabel.Parent = BillboardGui
+  local TextLabel = Instance.new("TextLabel")
+  TextLabel.Size = UDim2.new(1, 0, 1, 0)
+  TextLabel.BackgroundTransparency = 1
+  TextLabel.Text = player.Name
+  TextLabel.TextColor3 = Color3.new(1, 1, 1)
+  
+  TextLabel.TextStrokeTransparency = 0.4
+  TextLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+  TextLabel.Font = Enum.Font.SourceSansBold
+  TextLabel.TextSize = 16
+  TextLabel.Parent = BillboardGui
  end
 
  if player.Character then Setup(player.Character) end
@@ -2229,34 +2860,35 @@ end
 
 local function UpdateESP()
  for _, player in ipairs(Players:GetPlayers()) do
- if player ~= LocalPlayer then
- if ShouldESP(player) and player.Character then
- CreateFullHighlight(player.Character, player)
- CreateNametag(player)
- else
- if player.Character then
- for _, v in pairs(player.Character:GetChildren()) do
- if v:IsA("Highlight") and v.Name == "SlaxrFullESP" then
- v:Destroy()
- end
- end
- local nt = player.Character:FindFirstChild("SlaxrNametag", true)
- if nt then nt:Destroy() end
- end
- end
- end
+  if player ~= LocalPlayer then
+   if ShouldESP(player) and player.Character then
+    CreateFullHighlight(player.Character, player)
+    CreateNametag(player)
+   else
+    if player.Character then
+     for _, v in pairs(player.Character:GetChildren()) do
+      if v:IsA("Highlight") and v.Name == "SlaxrFullESP" then
+       v:Destroy()
+     
+      end
+     end
+     local nt = player.Character:FindFirstChild("SlaxrNametag", true)
+     if nt then nt:Destroy() end
+    end
+   end
+  end
  end
 end
 
 for _, v in pairs(Players:GetPlayers()) do
  if v ~= LocalPlayer then
- CreateNametag(v)
+  CreateNametag(v)
  end
 end
 
 Players.PlayerAdded:Connect(function(plr)
  if plr ~= LocalPlayer then
- CreateNametag(plr)
+  CreateNametag(plr)
  end
 end)
 
@@ -2267,19 +2899,19 @@ end)
 -- // each swatch's click handler directly (server-side, all see it).
 -- // ─────────────────────────────────────────────────────────
 local RAINBOW_COLORS = {
- Color3.fromRGB(26,141,141),   Color3.fromRGB(140,172,230),
- Color3.fromRGB(230,0,3),      Color3.fromRGB(141,81,57),
- Color3.fromRGB(102,109,229),  Color3.fromRGB(229,170,66),
- Color3.fromRGB(190,75,77),    Color3.fromRGB(69,158,190),
- Color3.fromRGB(62,190,23),    Color3.fromRGB(193,193,193),
- Color3.fromRGB(255,255,255),  Color3.fromRGB(240,240,240),
- Color3.fromRGB(255,255,116),  Color3.fromRGB(148,230,142),
- Color3.fromRGB(136,223,230),  Color3.fromRGB(64,255,240),
- Color3.fromRGB(188,167,230),  Color3.fromRGB(230,162,230),
- Color3.fromRGB(141,0,2),      Color3.fromRGB(39,39,39),
- Color3.fromRGB(230,96,0),     Color3.fromRGB(230,192,0),
- Color3.fromRGB(11,230,0),     Color3.fromRGB(0,200,230),
- Color3.fromRGB(0,3,230),      Color3.fromRGB(123,0,230),
+ Color3.fromRGB(26,141,141), Color3.fromRGB(140,172,230),
+ Color3.fromRGB(230,0,3), Color3.fromRGB(141,81,57),
+ Color3.fromRGB(102,109,229), Color3.fromRGB(229,170,66),
+ Color3.fromRGB(190,75,77), Color3.fromRGB(69,158,190),
+ Color3.fromRGB(62,190,23), Color3.fromRGB(193,193,193),
+ Color3.fromRGB(255,255,255), Color3.fromRGB(240,240,240),
+ Color3.fromRGB(255,255,116), Color3.fromRGB(148,230,142),
+ Color3.fromRGB(136,223,230), Color3.fromRGB(64,255,240),
+ Color3.fromRGB(188,167,230), Color3.fromRGB(230,162,230),
+ Color3.fromRGB(141,0,2), Color3.fromRGB(39,39,39),
+ Color3.fromRGB(230,96,0), Color3.fromRGB(230,192,0),
+ Color3.fromRGB(11,230,0), Color3.fromRGB(0,200,230),
+ Color3.fromRGB(0,3,230), Color3.fromRGB(123,0,230),
  Color3.fromRGB(230,0,227),
 }
 local _rhIdx = 1
@@ -2293,20 +2925,21 @@ local function _fireSwatch(swatch)
   pcall(function()
    local conns = getconnections(swatch[sigName])
    for _, c in ipairs(conns or {}) do
-    pcall(function() c:Fire() end)        -- Synapse-style
-    pcall(function() c.Function() end)    -- alternative
+    
+    pcall(function() c:Fire() end) -- Synapse-style
+    pcall(function() c.Function() end) -- alternative
    end
   end)
  end
  -- Method 3: VirtualInputManager click at swatch centre (last resort)
  pcall(function()
   local pos = swatch.AbsolutePosition
-  local sz  = swatch.AbsoluteSize
+  local sz = swatch.AbsoluteSize
   if sz.X > 0 and sz.Y > 0 then
    local cx = pos.X + sz.X/2
    local cy = pos.Y + sz.Y/2
    local vim = game:GetService("VirtualInputManager")
-   vim:SendMouseButtonEvent(cx, cy, 0, true,  game, 0)
+   vim:SendMouseButtonEvent(cx, cy, 0, true, game, 0)
    task.wait(0.03)
    vim:SendMouseButtonEvent(cx, cy, 0, false, game, 0)
   end
@@ -2316,6 +2949,7 @@ end
 task.spawn(function()
  while true do
   task.wait(0.15)
+  
   if RAINBOWHATS_ENABLED then
    pcall(function()
     local pg = game:GetService("Players").LocalPlayer.PlayerGui
@@ -2329,6 +2963,7 @@ task.spawn(function()
       if cur:IsA("ScreenGui") then cur.Enabled = state
       elseif cur:IsA("GuiObject") then cur.Visible = state end
       cur = cur.Parent
+ 
      end
     end
 
@@ -2354,6 +2989,7 @@ task.spawn(function()
 
     local n = #swatches
     if n > 0 then
+    
      _fireSwatch(swatches[((_rhIdx-1) % n) + 1])
      _rhIdx = _rhIdx + 1
     end
@@ -2366,7 +3002,7 @@ end)
 
 task.spawn(function()
  while true do
- task.wait(0.4)
- UpdateESP()
+  task.wait(0.4)
+  UpdateESP()
  end
 end)

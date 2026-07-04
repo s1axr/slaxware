@@ -2271,8 +2271,7 @@ function ParseCommand(inputStr)
      CmdFeedback.Text = "Player not found: " .. parts[2]
     end
    end
-  else
-   -- No argument: toggle aimlock on/off (existing behavior)
+  else   -- No argument: toggle aimlock on/off (existing behavior)
    FireToggle("aimlock")
   end
   return
@@ -3133,111 +3132,12 @@ local function CreateNametag(player)
  player.CharacterAdded:Connect(Setup)
 end
 
--- // HEALTH BAR ESP
--- Small vertical bar adorned to HumanoidRootPart, sits just to the right of the highlight
-
-local function GetHPColor(pct)
- -- green (0,200,80) → yellow (255,200,0) → red (255,50,50)
- if pct > 0.5 then
-  local t = (pct - 0.5) * 2
-  return Color3.fromRGB(
-   math.floor(255 * (1 - t)),
-   math.floor(200 * t + 200 * (1 - t)),
-   math.floor(80 * t)
-  )
- else
-  local t = pct * 2
-  return Color3.fromRGB(255, math.floor(200 * t), 0)
- end
-end
-
-local function CreateHealthBar(player)
- if player == LocalPlayer then return end
-
- local function Setup(char)
-  if not char then return end
-  local hrp = char:WaitForChild("HumanoidRootPart", 5)
-  local humanoid = char:WaitForChild("Humanoid", 5)
-  if not hrp or not humanoid then return end
-
-  -- Remove old bar if exists
-  local old = hrp:FindFirstChild("SlaxrHPBar")
-  if old then old:Destroy() end
-
-  local BB = Instance.new("BillboardGui")
-  BB.Name = "SlaxrHPBar"
-  BB.Adornee = hrp
-  BB.Size = UDim2.new(0, 4, 0, 36)
-  BB.StudsOffset = Vector3.new(1.6, 0, 0)
-  BB.AlwaysOnTop = true
-  BB.Parent = hrp
-
-  -- Dark background track
-  local Track = Instance.new("Frame")
-  Track.Size = UDim2.new(1, 0, 1, 0)
-  Track.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-  Track.BackgroundTransparency = 0.35
-  Track.BorderSizePixel = 0
-  Track.Parent = BB
-
-  local TrackCorner = Instance.new("UICorner")
-  TrackCorner.CornerRadius = UDim.new(1, 0)
-  TrackCorner.Parent = Track
-
-  -- Coloured fill (grows from bottom)
-  local Fill = Instance.new("Frame")
-  Fill.Name = "Fill"
-  Fill.AnchorPoint = Vector2.new(0, 1)
-  Fill.Position = UDim2.new(0, 0, 1, 0)
-  Fill.Size = UDim2.new(1, 0, 1, 0)
-  Fill.BackgroundColor3 = Color3.fromRGB(0, 200, 80)
-  Fill.BorderSizePixel = 0
-  Fill.Parent = Track
-
-  local FillCorner = Instance.new("UICorner")
-  FillCorner.CornerRadius = UDim.new(1, 0)
-  FillCorner.Parent = Fill
-
-  -- Live update loop for this bar
-  local conn
-  local CAM = workspace.CurrentCamera
-  -- Character is ~5 studs tall; we project top/bottom of that onto screen
-  -- so the bar pixel height always matches how tall the player looks on screen.
-  local CHAR_HALF_H = 2.5 -- half of character height in studs
-  conn = RunService.Heartbeat:Connect(function()
-   if not hrp or not hrp.Parent or not humanoid or not humanoid.Parent then
-    pcall(function() BB:Destroy() end)
-    conn:Disconnect()
-    return
-   end
-   -- Project the top and bottom of the character onto the screen
-   local topWorld    = hrp.Position + Vector3.new(0,  CHAR_HALF_H, 0)
-   local bottomWorld = hrp.Position + Vector3.new(0, -CHAR_HALF_H, 0)
-   local topScreen,    topVis    = CAM:WorldToViewportPoint(topWorld)
-   local bottomScreen, bottomVis = CAM:WorldToViewportPoint(bottomWorld)
-   if topVis and bottomVis then
-    local screenH = math.abs(topScreen.Y - bottomScreen.Y)
-    local barH = math.clamp(math.floor(screenH), 4, 200)
-    local barW = math.max(2, math.floor(barH / 9))
-    BB.Size = UDim2.new(0, barW, 0, barH)
-   end
-   local pct = math.clamp(humanoid.Health / math.max(humanoid.MaxHealth, 1), 0, 1)
-   Fill.Size = UDim2.new(1, 0, pct, 0)
-   Fill.BackgroundColor3 = GetHPColor(pct)
-  end)
- end
-
- if player.Character then Setup(player.Character) end
- player.CharacterAdded:Connect(Setup)
-end
-
 local function UpdateESP()
  for _, player in ipairs(Players:GetPlayers()) do
   if player ~= LocalPlayer then
    if ShouldESP(player) and player.Character then
     CreateFullHighlight(player.Character, player)
     CreateNametag(player)
-    CreateHealthBar(player)
    else
     if player.Character then
      for _, v in pairs(player.Character:GetChildren()) do
@@ -3247,8 +3147,6 @@ local function UpdateESP()
      end
      local nt = player.Character:FindFirstChild("SlaxrNametag", true)
      if nt then nt:Destroy() end
-     local hb = player.Character:FindFirstChild("SlaxrHPBar", true)
-     if hb then hb:Destroy() end
     end
    end
   end
@@ -3258,14 +3156,12 @@ end
 for _, v in pairs(Players:GetPlayers()) do
  if v ~= LocalPlayer then
   CreateNametag(v)
-  CreateHealthBar(v)
  end
 end
 
 Players.PlayerAdded:Connect(function(plr)
  if plr ~= LocalPlayer then
   CreateNametag(plr)
-  CreateHealthBar(plr)
  end
 end)
 

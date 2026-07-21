@@ -11,6 +11,11 @@
 
 ]]
 
+-- // Remove 0Box early
+if workspace:FindFirstChild("0Box") then
+    workspace["0Box"]:Destroy()
+end
+
 -- // Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")

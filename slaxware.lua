@@ -161,7 +161,7 @@ local function GetClosestPlayerToCursor()
  return closestPlayer
 end
 
--- // SILENT AIM METHOD HOOKS
+-- // SILENT AIM & ANTI-CHEAT METATABLE HOOKS
 local OldIndex = nil
 OldIndex = hookmetamethod(game, "__index", newcclosure(function(self, index)
  if self == Mouse and tostring(index) == "Hit" and Settings.Enabled then
@@ -178,10 +178,51 @@ OldIndex = hookmetamethod(game, "__index", newcclosure(function(self, index)
  return OldIndex(self, index)
 end))
 
+local OldNewIndex = nil
+OldNewIndex = hookmetamethod(game, "__newindex", newcclosure(function(self, index, val)
+ if not checkcaller() then
+  local name = tostring(self)
+  if name == "HumanoidRootPart" or name == "Torso" then
+   -- Block client-side anti-cheat resetting position/velocity
+   if index == "CFrame" or index == "Velocity" or index == "AssemblyLinearVelocity" then
+    return
+   end
+  elseif name == "Humanoid" then
+   -- Block client-side anti-cheat modifying humanoid properties
+   if index == "WalkSpeed" or index == "JumpPower" or index == "HipHeight" then
+    return
+   end
+  end
+ end
+ return OldNewIndex(self, index, val)
+end))
+
 local OldNamecall = nil
 OldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
  local method = getnamecallmethod()
  local args = {...}
+ 
+ if not checkcaller() then
+  local methodName = tostring(method)
+  if methodName == "FireServer" then
+   local remoteName = tostring(self)
+   if remoteName == "Input" then
+    local action = args[1]
+    -- Freezing the check threads for BodyVelocity (bv), Heartbeat (hb), and WalkSpeed (ws)
+    if action == "bv" or action == "hb" or action == "ws" then
+     return coroutine.yield() -- Yield calling thread forever to disable anti-cheat scans
+    end
+   elseif remoteName == "WalkSpeed" or remoteName == "JumpPower" or remoteName == "HipHeight" then
+    return nil -- Block outgoing reports of modified character properties
+   end
+  elseif methodName == "PivotTo" or methodName == "MoveTo" or methodName == "SetPrimaryPartCFrame" then
+   local name = tostring(self)
+   if name == "HumanoidRootPart" or name == "Torso" or self:IsA("Model") and (self.Name == LocalPlayer.Name or self == LocalPlayer.Character) then
+    return nil -- Block client-side anti-cheat from teleporting/resetting the player character
+   end
+  end
+ end
+
  if tostring(method) == "FindPartOnRayWithIgnoreList" and Settings.Enabled then
   local target = GetClosestPlayerToCursor()
   if target and target.Character then
@@ -921,7 +962,26 @@ getgenv().FLY_ENABLED = false
 local flyConnection = nil
 local flySpeedVector = Vector3.new(0, 0, 0)
 
+local function StopFly()
+ if flyConnection then flyConnection:Disconnect() flyConnection = nil end
+ local character = LocalPlayer.Character
+ if character then
+  local hrp = character:FindFirstChild("HumanoidRootPart")
+  if hrp then
+   local bv = hrp:FindFirstChild("SlaxFlyBV")
+   local bg = hrp:FindFirstChild("SlaxFlyBG")
+   if bv then bv:Destroy() end
+   if bg then bg:Destroy() end
+  end
+  local humanoid = character:FindFirstChildOfClass("Humanoid")
+  if humanoid then
+   humanoid.PlatformStand = false
+  end
+ end
+end
+
 local function StartFly()
+ StopFly() -- Prevent duplicate overlapping connections
  local character = LocalPlayer.Character
  if not character then return end
  local hrp = character:FindFirstChild("HumanoidRootPart")
@@ -964,29 +1024,13 @@ local function StartFly()
   if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then direction = direction - Vector3.new(0, 1, 0) end
 
   if direction.Magnitude > 0 then
-   vel.Velocity = direction.Unit * FLY_SPEED
+   -- Cap flight speed at 150 studs/sec to completely prevent server-side physics engine lagbacks (rubberbanding)
+   local clampedSpeed = math.min(FLY_SPEED, 150)
+   vel.Velocity = direction.Unit * clampedSpeed
   else
    vel.Velocity = Vector3.new(0, 0, 0)
   end
  end)
-end
-
-local function StopFly()
- if flyConnection then flyConnection:Disconnect() flyConnection = nil end
- local character = LocalPlayer.Character
- if character then
-  local hrp = character:FindFirstChild("HumanoidRootPart")
-  if hrp then
-   local bv = hrp:FindFirstChild("SlaxFlyBV")
-   local bg = hrp:FindFirstChild("SlaxFlyBG")
-   if bv then bv:Destroy() end
-   if bg then bg:Destroy() end
-  end
-  local humanoid = character:FindFirstChildOfClass("Humanoid")
-  if humanoid then
-   humanoid.PlatformStand = false
-  end
- end
 end
 
 FlyToggle.MouseButton1Click:Connect(function()
@@ -1000,7 +1044,7 @@ FlyToggle.MouseButton1Click:Connect(function()
   FlyToggle.Text = "Fly: Disabled"
   StopFly()
  end
-end)
+ end)
 
 -- Re-enable platform state if character respawns while Fly toggled active
 LocalPlayer.CharacterAdded:Connect(function()
@@ -1124,6 +1168,11 @@ local function SlaxHookCharacter(character)
  end
 
  if not humanoid then return end
+
+ -- Clean up fly connections/state on character death
+ humanoid.Died:Connect(function()
+  if FLY_ENABLED then StopFly() end
+ end)
 
  -- NOSLOW: initial clear of any slow tags already present on spawn
  if NOSLOW_ENABLED then
@@ -1505,7 +1554,6 @@ MainCmdFeedback.Text = ""
 MainCmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
 MainCmdFeedback.TextSize = 11
 MainCmdFeedback.Font = Enum.Font.Gotham
-MainCmdFeedback.TextXAlignment = Enum.TextXAlignment.Left
 MainCmdFeedback.ZIndex = 21
 MainCmdFeedback.Parent = CmdBarFrame
 
@@ -2271,7 +2319,8 @@ function ParseCommand(inputStr)
      CmdFeedback.Text = "Player not found: " .. parts[2]
     end
    end
-  else   -- No argument: toggle aimlock on/off (existing behavior)
+  else
+   -- No argument: toggle aimlock on/off (existing behavior)
    FireToggle("aimlock")
   end
   return
@@ -2404,7 +2453,7 @@ function ParseCommand(inputStr)
   end
 
   -- Save bind
-  Binds[toggleName] = Enum.KeyCode[keyEnumName:split(".")[2]]
+  Binds[toggleName] = Enum.KeyCode[string.split(keyEnumName, ".")[2]]
   CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
   CmdFeedback.Text = "Bound " .. toggleName .. " to " .. keyStr:upper()
   Notify("Bind Set", "🔑 " .. toggleName .. " → " .. keyStr:upper())
@@ -2532,7 +2581,7 @@ function ParseCommand(inputStr)
     local startPos = hr.Position
     local path = tp - startPos
     local dist = path.Magnitude
-    local sSpeed = 160
+    local sSpeed = 140 -- Clamped speed to stay safely under Roblox physics verification limits
     local stepCount = math.max(1, math.floor(dist / (sSpeed * 0.03)))
     for i=1,stepCount do
      if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return end
@@ -2681,7 +2730,7 @@ function ParseCommand(inputStr)
 
     -- TP Walk toward the LOCKED model only
     do
-     local STEP_SPEED = 180 -- studs per second
+     local STEP_SPEED = 140 -- Clamped speed to stay safely under Roblox physics verification limits
      local ARRIVE_DIST = 0.5 -- land directly ON the model
      local MAX_STEPS = 400 -- hard cap so it can't loop forever
      local finalPos = nil -- track where we stop so we can face it
@@ -3132,12 +3181,111 @@ local function CreateNametag(player)
  player.CharacterAdded:Connect(Setup)
 end
 
+-- // HEALTH BAR ESP
+-- Small vertical bar adorned to HumanoidRootPart, sits just to the right of the highlight
+
+local function GetHPColor(pct)
+ -- green (0,200,80) → yellow (255,200,0) → red (255,50,50)
+ if pct > 0.5 then
+  local t = (pct - 0.5) * 2
+  return Color3.fromRGB(
+   math.floor(255 * (1 - t)),
+   math.floor(200 * t + 200 * (1 - t)),
+   math.floor(80 * t)
+  )
+ else
+  local t = pct * 2
+  return Color3.fromRGB(255, math.floor(200 * t), 0)
+ end
+end
+
+local function CreateHealthBar(player)
+ if player == LocalPlayer then return end
+
+ local function Setup(char)
+  if not char then return end
+  local hrp = char:WaitForChild("HumanoidRootPart", 5)
+  local humanoid = char:WaitForChild("Humanoid", 5)
+  if not hrp or not humanoid then return end
+
+  -- Remove old bar if exists
+  local old = hrp:FindFirstChild("SlaxrHPBar")
+  if old then old:Destroy() end
+
+  local BB = Instance.new("BillboardGui")
+  BB.Name = "SlaxrHPBar"
+  BB.Adornee = hrp
+  BB.Size = UDim2.new(0, 4, 0, 36)
+  BB.StudsOffset = Vector3.new(1.6, 0, 0)
+  BB.AlwaysOnTop = true
+  BB.Parent = hrp
+
+  -- Dark background track
+  local Track = Instance.new("Frame")
+  Track.Size = UDim2.new(1, 0, 1, 0)
+  Track.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+  Track.BackgroundTransparency = 0.35
+  Track.BorderSizePixel = 0
+  Track.Parent = BB
+
+  local TrackCorner = Instance.new("UICorner")
+  TrackCorner.CornerRadius = UDim.new(1, 0)
+  TrackCorner.Parent = Track
+
+  -- Coloured fill (grows from bottom)
+  local Fill = Instance.new("Frame")
+  Fill.Name = "Fill"
+  Fill.AnchorPoint = Vector2.new(0, 1)
+  Fill.Position = UDim2.new(0, 0, 1, 0)
+  Fill.Size = UDim2.new(1, 0, 1, 0)
+  Fill.BackgroundColor3 = Color3.fromRGB(0, 200, 80)
+  Fill.BorderSizePixel = 0
+  Fill.Parent = Track
+
+  local FillCorner = Instance.new("UICorner")
+  FillCorner.CornerRadius = UDim.new(1, 0)
+  FillCorner.Parent = Fill
+
+  -- Live update loop for this bar
+  local conn
+  local CAM = workspace.CurrentCamera
+  -- Character is ~5 studs tall; we project top/bottom of that onto screen
+  -- so the bar pixel height always matches how tall the player looks on screen.
+  local CHAR_HALF_H = 2.5 -- half of character height in studs
+  conn = RunService.Heartbeat:Connect(function()
+   if not hrp or not hrp.Parent or not humanoid or not humanoid.Parent then
+    pcall(function() BB:Destroy() end)
+    conn:Disconnect()
+    return
+   end
+   -- Project the top and bottom of the character onto the screen
+   local topWorld    = hrp.Position + Vector3.new(0,  CHAR_HALF_H, 0)
+   local bottomWorld = hrp.Position + Vector3.new(0, -CHAR_HALF_H, 0)
+   local topScreen,    topVis    = CAM:WorldToViewportPoint(topWorld)
+   local bottomScreen, bottomVis = CAM:WorldToViewportPoint(bottomWorld)
+   if topVis and bottomVis then
+    local screenH = math.abs(topScreen.Y - bottomScreen.Y)
+    local barH = math.clamp(math.floor(screenH), 4, 200)
+    local barW = math.max(2, math.floor(barH / 9))
+    BB.Size = UDim2.new(0, barW, 0, barH)
+   end
+   local pct = math.clamp(humanoid.Health / math.max(humanoid.MaxHealth, 1), 0, 1)
+   Fill.Size = UDim2.new(1, 0, pct, 0)
+   Fill.BackgroundColor3 = GetHPColor(pct)
+  end)
+ end
+
+ if player.Character then Setup(player.Character) end
+ player.CharacterAdded:Connect(Setup)
+end
+
 local function UpdateESP()
  for _, player in ipairs(Players:GetPlayers()) do
   if player ~= LocalPlayer then
    if ShouldESP(player) and player.Character then
     CreateFullHighlight(player.Character, player)
     CreateNametag(player)
+    CreateHealthBar(player)
    else
     if player.Character then
      for _, v in pairs(player.Character:GetChildren()) do
@@ -3147,6 +3295,8 @@ local function UpdateESP()
      end
      local nt = player.Character:FindFirstChild("SlaxrNametag", true)
      if nt then nt:Destroy() end
+     local hb = player.Character:FindFirstChild("SlaxrHPBar", true)
+     if hb then hb:Destroy() end
     end
    end
   end
@@ -3156,12 +3306,14 @@ end
 for _, v in pairs(Players:GetPlayers()) do
  if v ~= LocalPlayer then
   CreateNametag(v)
+  CreateHealthBar(v)
  end
 end
 
 Players.PlayerAdded:Connect(function(plr)
  if plr ~= LocalPlayer then
   CreateNametag(plr)
+  CreateHealthBar(plr)
  end
 end)
 

@@ -27,37 +27,9 @@ local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
 -- -----------------------------------------------------
--- // AUTO-FIRE PROXIMITY PROMPTS
--- // Fires any ProximityPrompt the moment the player
--- // enters its activation radius — no key, no hold.
+-- // AUTO-FIRE PROXIMITY PROMPTS – REMOVED COMPLETELY
+-- // (no automatic buying when near items)
 -- -----------------------------------------------------
-
-local function hookAutoFire(prompt)
-    prompt.PromptShown:Connect(function()
-        task.wait(0.05) -- one frame buffer so the game registers proximity
-        pcall(function()
-            prompt.HoldDuration = 0 -- instant, no hold needed
-            prompt.RequiresLineOfSight = false
-            prompt:InputHoldBegin()
-            task.wait(prompt.HoldDuration) -- 0 = fires instantly
-            prompt:InputHoldEnd()
-        end)
-    end)
-end
-
-for _, prompt in pairs(workspace:GetDescendants()) do
-    if prompt:IsA("ProximityPrompt") then
-        hookAutoFire(prompt)
-    end
-end
-
-workspace.DescendantAdded:Connect(function(descendant)
-    if descendant:IsA("ProximityPrompt") then
-        hookAutoFire(descendant)
-    end
-end)
-
-print("✅ Auto-Fire Proximity Prompts Active")
 
 -- -----------------------------------------------------
 -- // SILENT AIM & AIMLOCK SETTINGS

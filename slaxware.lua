@@ -1231,8 +1231,6 @@ if LocalPlayer.Character then
     task.spawn(SlaxHookCharacter, LocalPlayer.Character)
 end
 
-print("✅ SlaxWare Loaded | : = Command Bar | K = Toggle GUI")
-
 -- // AUTO RESET ON LOW HEALTH (Strong Version)
 local RESET_HEALTH_THRESHOLD = 10
 local lastResetTime = 0
@@ -1274,8 +1272,6 @@ LocalPlayer.CharacterAdded:Connect(function()
     task.wait(0.8)
     print("✅ Respawned - Auto reset active again")
 end)
-
-print("✅ Strong Auto Reset on ≤10 HP Loaded")
 
 -- // NAME AIMLOCK GUI
 local NameAimlockLabel = Instance.new("TextLabel")
@@ -1469,8 +1465,10 @@ local CmdBarTweenInfo = TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingD
 local CmdBarFrame = Instance.new("Frame")
 CmdBarFrame.Name = "SlaxCmdBar"
 CmdBarFrame.Size = UDim2.new(0, 380, 0, 48)
-local CMD_BAR_OPEN_POS   = UDim2.new(1, -400, 0.5, -24)
-local CMD_BAR_CLOSED_POS = UDim2.new(1,   20, 0.5, -24)
+
+-- Positioned to slide in from the LEFT side of the screen
+local CMD_BAR_OPEN_POS   = UDim2.new(0, 20, 0.5, -24)
+local CMD_BAR_CLOSED_POS = UDim2.new(0, -400, 0.5, -24)
 CmdBarFrame.Position = CMD_BAR_CLOSED_POS
 CmdBarFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
 CmdBarFrame.BackgroundTransparency = 0.08
@@ -1569,7 +1567,10 @@ end
 local SideFrame = Instance.new("Frame")
 SideFrame.Name = "SideCmdBarFrame"
 SideFrame.Size = UDim2.new(0, 300, 0, 70)
-SideFrame.Position = UDim2.new(1, 10, 0.5, -35)
+-- Positioned to slide in from the LEFT side of the screen
+local sideClosedPos = UDim2.new(0, -310, 0.5, -35)
+local sideOpenPos = UDim2.new(0, 10, 0.5, -35)
+SideFrame.Position = sideClosedPos
 SideFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 SideFrame.BackgroundTransparency = 0.15
 SideFrame.BorderSizePixel = 0
@@ -1633,8 +1634,6 @@ SideCmdFeedback.ZIndex = 11
 SideCmdFeedback.Parent = SideFrame
 
 local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-local sideOpenPos = UDim2.new(1, -310, 0.5, -35)
-local sideClosedPos = UDim2.new(1, 10, 0.5, -35)
 
 local isSideOpen = false
 local sideCloseThread = nil
@@ -1703,8 +1702,6 @@ end)
 
 local Binds = {}
 local _lastNameAimlockTarget = nil
-local ITEM_ESP_ACTIVE=false;
-local ITEM_ESP_OBJECTS={}
 local GET_ITEMS={
     ["money"] ={label="💰 Money",   mesh="rbxassetid://511726060",  texture="rbxassetid://511726139", names={"Money","Cash","Dollar","cash","money"}},
     ["grenade"]={label="💣 Grenade", mesh="rbxassetid://436966955",  texture="rbxassetid://436966973", names={"Grenade","grenade","Frag"}},
@@ -1891,9 +1888,6 @@ local CMD_LIST = {
     { cmd = "brick", desc = "→ Scan workspace for brick" },
     { cmd = "usas", desc = "→ Scan workspace for USAS-12" },
     { cmd = "uzi", desc = "→ Scan workspace for Uzi" },
-    { cmd = "", desc = "── Item ESP ────────────────────────────" },
-    { cmd = "itemesp", desc = "ESP all scannable items in world" },
-    { cmd = "unitemesp",desc = "Remove item ESP" },
     { cmd = "", desc = "── Bindable toggles ──────────────────" },
     { cmd = "aimlock {player}", desc = "Lock aimlock onto player (or 'off' to clear)" },
     { cmd = "autoreset", desc = "Auto reset character at ≤10 HP" },
@@ -2677,128 +2671,6 @@ function ParseCommand(inputStr)
         return
     end
 
-    if cmd == "itemesp" then
-        if ITEM_ESP_ACTIVE then
-            CmdFeedback.TextColor3 = Color3.fromRGB(255, 150, 0)
-            CmdFeedback.Text = "Item ESP is already enabled"
-            return
-        end
-        ITEM_ESP_ACTIVE = true
-        CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
-        CmdFeedback.Text = "Item ESP Enabled"
-
-        Notify("ESP", "Scannable Item ESP: Active")
-        task.spawn(function()
-            local function nId(s) return tostring(s):lower():gsub("%s+","") end
-            while ITEM_ESP_ACTIVE do
-                for _, obj in ipairs(ITEM_ESP_OBJECTS) do
-                    pcall(function() obj:Destroy() end)
-                end
-                ITEM_ESP_OBJECTS = {}
-
-                local seen = {} 
-                for itemKey, iDef in pairs(GET_ITEMS) do
-                    if not ITEM_ESP_ACTIVE then break end
-
-                    local function mI(o)
-                        local c = o.ClassName
-                        local m = iDef.mesh and nId(iDef.mesh)
-                        local t = iDef.texture and nId(iDef.texture)
-                        if c == "SpecialMesh" or c == "FileMesh" then
-                            return (m and nId(o.MeshId) == m) or (t and nId(o.TextureId) == t)
-                        elseif c == "MeshPart" then
-                            return (m and nId(o.MeshId) == m) or (t and nId(o.TextureId) == t)
-                        elseif c == "Texture" or c == "Decal" then
-                            return t and nId(o.Texture) == t
-                        end
-                        if iDef.names and (o:IsA("Model") or o:IsA("BasePart") or o:IsA("Tool")) then
-                            for _, n in ipairs(iDef.names) do
-                                if o.Name == n then return true end
-                            end
-                        end
-                        return false
-                    end
-
-                    for i, o in ipairs(workspace:GetDescendants()) do
-                        if i % 200 == 0 then task.wait() end
-                        if not ITEM_ESP_ACTIVE then break end
-                        local ok, hit = pcall(mI, o)
-                        if ok and hit then
-                            local a = o.Parent
-                            while a and a ~= workspace do
-                                if a:IsA("Model") then break end
-                                a = a.Parent
-                            end
-                            local tg = (a and a ~= workspace and a:IsA("Model")) and a
-                                or (o:IsA("BasePart") and o)
-                                or (o.Parent and o.Parent:IsA("BasePart") and o.Parent)
-
-                            if tg and not seen[tg] then
-                                seen[tg] = true
-                                local adornPart
-                                if tg:IsA("Model") then
-                                    adornPart = tg.PrimaryPart
-                                    if not adornPart then
-                                        for _, v in pairs(tg:GetDescendants()) do
-                                            if v:IsA("BasePart") then adornPart = v; break end
-                                        end
-                                    end
-                                elseif tg:IsA("BasePart") then
-                                    adornPart = tg
-                                end
-
-                                if adornPart then
-                                    pcall(function()
-                                        local Billboard = Instance.new("BillboardGui")
-                                        Billboard.Name = "SlaxItemESP"
-                                        Billboard.Adornee = adornPart
-                                        Billboard.Size = UDim2.new(0, 160, 0, 40)
-                                        Billboard.StudsOffset = Vector3.new(0, 2, 0)
-                                        Billboard.AlwaysOnTop = true
-                                        Billboard.Parent = adornPart
-
-                                        local Label = Instance.new("TextLabel")
-                                        Label.Size = UDim2.new(1, 0, 1, 0)
-                                        Label.BackgroundTransparency = 1
-                                        Label.Text = iDef.label
-                                        Label.TextColor3 = Color3.fromRGB(0, 255, 180)
-                                        Label.TextStrokeColor3 = Color3.new(0, 0, 0)
-                                        Label.TextStrokeTransparency = 0.3
-                                        Label.Font = Enum.Font.SourceSansBold
-                                        Label.TextSize = 13
-                                        Label.Parent = Billboard
-
-                                        table.insert(ITEM_ESP_OBJECTS, Billboard)
-                                    end)
-                                end
-                            end
-                        end
-                    end
-                end
-                task.wait(4.0) 
-            end
-        end)
-        return
-    end
-
-    if cmd == "unitemesp" then
-        if not ITEM_ESP_ACTIVE then
-            CmdFeedback.TextColor3 = Color3.fromRGB(160, 160, 160)
-            CmdFeedback.Text = "Item ESP is already disabled"
-            return
-        end
-        ITEM_ESP_ACTIVE = false
-
-        for _, obj in ipairs(ITEM_ESP_OBJECTS) do
-            pcall(function() obj:Destroy() end)
-        end
-        ITEM_ESP_OBJECTS = {}
-        CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
-        CmdFeedback.Text = "Item ESP Disabled"
-        Notify("ESP", "Scannable Item ESP: Removed")
-        return
-    end
-
     if cmd == "lastpos" then
         LASTPOS_ENABLED = true
         CmdFeedback.TextColor3 = Color3.fromRGB(0, 220, 80)
@@ -2950,8 +2822,6 @@ task.spawn(function()
     end
 end)
 
-print("✅ SlaxWare Loaded | Press : to open command bar | K to toggle main GUI")
-
 -- // ESP - Full Body Highlight + Classic Nametags
 _G.FriendColor = Color3.fromRGB(0, 0, 255)
 _G.EnemyColor = Color3.fromRGB(255, 0, 0)
@@ -3055,3 +2925,15 @@ task.spawn(function()
         UpdateESP()
     end
 end)
+
+-- Execute Start Notification
+pcall(function()
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "SLAXWARE 🐈",
+        Text = "K TO HIDE GUI / \":\" KEY FOR CMDBAR",
+        Icon = "rbxassetid://84442523235966",
+        Duration = 8,
+    })
+end)
+
+print("✅ SlaxWare Loaded | Press : to open command bar | K to toggle main GUI")

@@ -2931,7 +2931,7 @@ pcall(function()
     game:GetService("StarterGui"):SetCore("SendNotification", {
         Title = "SLAXWARE 🐈",
         Text = "K TO HIDE GUI / \":\" KEY FOR CMDBAR",
-        Icon = "rbxassetid://136701224542486",
+        Icon = "rbxassetid://93029943108776",
         Duration = 8,
     })
 end)

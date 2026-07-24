@@ -6,7 +6,7 @@
 (____/\____/\_/\_/(_/\_)(_/\_)\_/\_/(__\_)(____)
 
 -- made by grok ai btw lol cry idgaf
--- Features: auto-reset at 10hp (toggle), aimlock, esp, camlock
+-- Features: auto-reset at 10hp (toggle), aimlock, esp, camlock, custom bullets
 -- The Streets
 
 ]]
@@ -196,24 +196,109 @@ end))
 
 
 -- -----------------------------------------------------
+-- // BULLET TRAILS ENGINE
+-- -----------------------------------------------------
+
+local BULLET_TRAILS_ENABLED = false
+local APPLY_TO_EVERYONE = false
+local BulletColour = ColorSequence.new(Color3.fromRGB(255, 255, 255))
+local TrailTime = 0.2
+local BulletTransparency = 0.0
+
+local OwnTrails = setmetatable({}, {__mode = "k"})
+
+local function IsOwnBullet(trail)
+    if OwnTrails[trail] ~= nil then return OwnTrails[trail] end
+    local isOwn = false
+    if LocalPlayer.Character then
+        local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart") or LocalPlayer.Character:FindFirstChild("Torso")
+        local part = trail.Parent
+        
+        if trail:IsDescendantOf(LocalPlayer.Character) then
+            isOwn = true
+        elseif hrp and part and part:IsA("BasePart") then
+            if (part.Position - hrp.Position).Magnitude <= 15 then
+                isOwn = true
+            end
+        end
+    end
+    OwnTrails[trail] = isOwn
+    return isOwn
+end
+
+local function ApplyChanges(T)
+    if not BULLET_TRAILS_ENABLED then return end
+    if T and T:IsA("Trail") then 
+        if not APPLY_TO_EVERYONE and not IsOwnBullet(T) then return end
+        
+        T.Color = BulletColour
+        T.Lifetime = TrailTime
+        T.Transparency = NumberSequence.new(BulletTransparency)
+    end 
+end
+
+local function UpdateActiveBullets()
+    for _, v in pairs(workspace:GetDescendants()) do
+        if v:IsA("Trail") and v.Parent and v.Parent.Name:lower():find("bullet") then
+            ApplyChanges(v)
+        end
+    end
+    if LocalPlayer.Character then
+        for _, v in pairs(LocalPlayer.Character:GetDescendants()) do
+            if v:IsA("Trail") then ApplyChanges(v) end
+        end
+    end
+end
+
+workspace.DescendantAdded:Connect(function(desc)
+    if desc:IsA("Trail") then ApplyChanges(desc) end
+end)
+
+local function HookCharForTrails(char)
+    char.DescendantAdded:Connect(function(desc)
+        if desc:IsA("Trail") then ApplyChanges(desc) end
+    end)
+end
+if LocalPlayer.Character then HookCharForTrails(LocalPlayer.Character) end
+LocalPlayer.CharacterAdded:Connect(HookCharForTrails)
+
+local BulletColourTable = {
+    ["Black"]  = ColorSequence.new(Color3.fromRGB(0, 0, 0)),
+    ["White"]  = ColorSequence.new(Color3.fromRGB(255, 255, 255)),
+    ["Red"]    = ColorSequence.new(Color3.fromRGB(255, 0, 0)),
+    ["Green"]  = ColorSequence.new(Color3.fromRGB(0, 255, 0)),
+    ["Blue"]   = ColorSequence.new(Color3.fromRGB(0, 0, 255)),
+    ["Yellow"] = ColorSequence.new(Color3.fromRGB(255, 255, 0)),
+    ["Pink"]   = ColorSequence.new(Color3.fromRGB(255, 20, 147)),
+    ["Purple"] = ColorSequence.new(Color3.fromRGB(128, 0, 128))
+}
+
+-- -----------------------------------------------------
 -- // MAIN UI ENGINE (Detailed + Vertical Layout)
 -- -----------------------------------------------------
 
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "SlaxwareGUI"
 ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = game:GetService("CoreGui")
 
+local Container = Instance.new("Frame")
+Container.Size = UDim2.new(0, 240, 0, 440)
+Container.Position = UDim2.new(0.5, -120, 0.5, -220)
+Container.BackgroundTransparency = 1
+Container.Active = true
+Container.Parent = ScreenGui
+
+-- // SLAXWARE MAIN FRAME //
 local Frame = Instance.new("Frame")
-Frame.Size = UDim2.new(0, 240, 0, 440)
-Frame.Position = UDim2.new(0.5, -120, 0.5, -220)
+Frame.Size = UDim2.new(1, 0, 1, 0)
+Frame.Position = UDim2.new(0, 0, 0, 0)
 Frame.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
 Frame.BorderSizePixel = 0
-Frame.Active = true
-Frame.Draggable = false
-Frame.Visible = true
+Frame.ZIndex = 10
 Frame.ClipsDescendants = true
-Frame.Parent = ScreenGui
+Frame.Parent = Container
 
 local mainCorner = Instance.new("UICorner")
 mainCorner.CornerRadius = UDim.new(0, 6)
@@ -255,10 +340,10 @@ local isMinimized = false
 MinimizeBtn.MouseButton1Click:Connect(function()
     isMinimized = not isMinimized
     if isMinimized then
-        TweenService:Create(Frame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0, 240, 0, 30)}):Play()
+        TweenService:Create(Container, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0, 240, 0, 30)}):Play()
         MinimizeBtn.Text = "+"
     else
-        TweenService:Create(Frame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0, 240, 0, 440)}):Play()
+        TweenService:Create(Container, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0, 240, 0, 440)}):Play()
         MinimizeBtn.Text = "—"
     end
 end)
@@ -269,7 +354,7 @@ do
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
-            startPos = Frame.Position
+            startPos = Container.Position
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     dragging = false
@@ -285,10 +370,82 @@ do
     UserInputService.InputChanged:Connect(function(input)
         if input == dragInput and dragging then
             local delta = input.Position - dragStart
-            Frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            Container.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
         end
     end)
 end
+
+-- // BULLETS SLIDE-OUT FRAME //
+local BulletFrame = Instance.new("Frame")
+BulletFrame.Size = UDim2.new(1, 0, 1, 0)
+BulletFrame.Position = UDim2.new(0, 0, 0, 0)
+BulletFrame.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+BulletFrame.BorderSizePixel = 0
+BulletFrame.ZIndex = 5
+BulletFrame.ClipsDescendants = true
+BulletFrame.Parent = Container
+
+local bCorner = Instance.new("UICorner", BulletFrame)
+bCorner.CornerRadius = UDim.new(0, 6)
+local bStroke = Instance.new("UIStroke", BulletFrame)
+bStroke.Color = Color3.fromRGB(45, 45, 45)
+bStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+
+local BTitleBar = Instance.new("TextLabel")
+BTitleBar.Size = UDim2.new(1, 0, 0, 30)
+BTitleBar.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+BTitleBar.Text = "  🔫 BULLET TRAILS"
+BTitleBar.TextColor3 = Color3.fromRGB(0, 180, 255)
+BTitleBar.Font = Enum.Font.GothamBold
+BTitleBar.TextSize = 13
+BTitleBar.TextXAlignment = Enum.TextXAlignment.Left
+BTitleBar.Parent = BulletFrame
+
+local bTitleLine = Instance.new("Frame", BTitleBar)
+bTitleLine.Size = UDim2.new(1, 0, 0, 1)
+bTitleLine.Position = UDim2.new(0, 0, 1, 0)
+bTitleLine.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+bTitleLine.BorderSizePixel = 0
+
+local BCloseBtn = Instance.new("TextButton")
+BCloseBtn.Size = UDim2.new(0, 30, 0, 30)
+BCloseBtn.Position = UDim2.new(1, -30, 0, 0)
+BCloseBtn.BackgroundTransparency = 1
+BCloseBtn.Text = "X"
+BCloseBtn.TextColor3 = Color3.fromRGB(180, 50, 50)
+BCloseBtn.Font = Enum.Font.GothamBold
+BCloseBtn.TextSize = 14
+BCloseBtn.Parent = BTitleBar
+BCloseBtn.MouseButton1Click:Connect(function()
+    TweenService:Create(BulletFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, 0, 0, 0)}):Play()
+end)
+
+local BContent = Instance.new("ScrollingFrame")
+BContent.Size = UDim2.new(1, 0, 1, -30)
+BContent.Position = UDim2.new(0, 0, 0, 30)
+BContent.BackgroundTransparency = 1
+BContent.BorderSizePixel = 0
+BContent.ScrollBarThickness = 4
+BContent.CanvasSize = UDim2.new(0, 0, 0, 0)
+BContent.Parent = BulletFrame
+
+local bPad = Instance.new("UIPadding", BContent)
+bPad.PaddingTop = UDim.new(0, 8)
+bPad.PaddingBottom = UDim.new(0, 8)
+bPad.PaddingLeft = UDim.new(0, 10)
+
+local BLayout = Instance.new("UIListLayout", BContent)
+BLayout.SortOrder = Enum.SortOrder.LayoutOrder
+BLayout.Padding = UDim.new(0, 6)
+
+BLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    BContent.CanvasSize = UDim2.new(0, 0, 0, BLayout.AbsoluteContentSize.Y + 16)
+end)
+
+local BLayoutCount = 0
+local function BNextOrder() BLayoutCount = BLayoutCount + 1 return BLayoutCount end
+
+-- // MAIN CONTENT LAYOUT //
 
 local Content = Instance.new("ScrollingFrame")
 Content.Size = UDim2.new(1, 0, 1, -30)
@@ -454,6 +611,67 @@ local function CreateSlider(parent, layoutOrder, labelText, minVal, maxVal, curr
     end
 end
 
+local function CreateDecimalSlider(parent, layoutOrder, labelText, minVal, maxVal, currentVal, decimals, callback)
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1, -20, 0, 32)
+    container.BackgroundTransparency = 1
+    container.LayoutOrder = layoutOrder
+    container.Parent = parent
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0, 14)
+    label.BackgroundTransparency = 1
+    label.Text = string.format("%s: %."..decimals.."f", labelText, currentVal)
+    label.TextColor3 = Color3.fromRGB(180, 180, 180)
+    label.TextSize = 11
+    label.Font = Enum.Font.Gotham
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = container
+
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(1, 0, 0, 4)
+    bar.Position = UDim2.new(0, 0, 0, 20)
+    bar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    bar.BorderSizePixel = 0
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
+    bar.Parent = container
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 12, 0, 12)
+    local pct = (currentVal - minVal) / (maxVal - minVal)
+    knob.Position = UDim2.new(pct, -6, 0.5, -6)
+    knob.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
+    knob.BorderSizePixel = 0
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+    knob.Parent = bar
+
+    local active = false
+    bar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            active = true
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            active = false
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if active and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local ratio = math.clamp((UserInputService:GetMouseLocation().X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+            knob.Position = UDim2.new(ratio, -6, 0.5, -6)
+            local val = minVal + (ratio * (maxVal - minVal))
+            label.Text = string.format("%s: %."..decimals.."f", labelText, val)
+            callback(val)
+        end
+    end)
+    return function(newVal)
+        label.Text = string.format("%s: %."..decimals.."f", labelText, newVal)
+        local r = (newVal - minVal) / (maxVal - minVal)
+        knob.Position = UDim2.new(r, -6, 0.5, -6)
+    end
+end
+
 local function CreateDropFrame(parent, layoutOrder)
     local drop = Instance.new("ScrollingFrame")
     drop.Size = UDim2.new(1, -20, 0, 0)
@@ -587,6 +805,138 @@ KeylockBtn.MouseButton1Click:Connect(function()
     KeylockBtn.Text = "Keylock Bind: [ Press Any Key ]"
 end)
 
+local CustomTrailsBtn = CreateButton(Content, NextOrder(), "Custom Bullet Trails")
+CustomTrailsBtn.MouseButton1Click:Connect(function()
+    TweenService:Create(BulletFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, -250, 0, 0)}):Play()
+end)
+
+-- ================= BULLETS GUI POPULATION =================
+
+local MasterBulletToggle = CreateButton(BContent, BNextOrder(), "Bullet Trails: OFF")
+MasterBulletToggle.MouseButton1Click:Connect(function()
+    BULLET_TRAILS_ENABLED = not BULLET_TRAILS_ENABLED
+    SetBtnState(MasterBulletToggle, BULLET_TRAILS_ENABLED, "Bullet Trails: ON", "Bullet Trails: OFF")
+    if BULLET_TRAILS_ENABLED then UpdateActiveBullets() end
+end)
+
+local TargetToggle = CreateButton(BContent, BNextOrder(), "Target: ME ONLY")
+TargetToggle.MouseButton1Click:Connect(function()
+    APPLY_TO_EVERYONE = not APPLY_TO_EVERYONE
+    if APPLY_TO_EVERYONE then
+        TargetToggle.BackgroundColor3 = Color3.fromRGB(0, 100, 160)
+        TargetToggle.Text = "Target: EVERYONE"
+    else
+        TargetToggle.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+        TargetToggle.Text = "Target: ME ONLY"
+    end
+    if BULLET_TRAILS_ENABLED then UpdateActiveBullets() end
+end)
+
+local PresetLbl = Instance.new("TextLabel")
+PresetLbl.Size = UDim2.new(1, -20, 0, 16)
+PresetLbl.BackgroundTransparency = 1
+PresetLbl.Text = "Color Presets"
+PresetLbl.TextColor3 = Color3.fromRGB(200, 200, 200)
+PresetLbl.Font = Enum.Font.GothamBold
+PresetLbl.TextSize = 11
+PresetLbl.TextXAlignment = Enum.TextXAlignment.Left
+PresetLbl.LayoutOrder = BNextOrder()
+PresetLbl.Parent = BContent
+
+local BGridFrame = Instance.new("Frame")
+BGridFrame.Size = UDim2.new(1, -20, 0, 86)
+BGridFrame.BackgroundTransparency = 1
+BGridFrame.LayoutOrder = BNextOrder()
+BGridFrame.Parent = BContent
+
+local BUIGrid = Instance.new("UIGridLayout")
+BUIGrid.CellSize = UDim2.new(0, 64, 0, 24)
+BUIGrid.CellPadding = UDim2.new(0, 6, 0, 6)
+BUIGrid.SortOrder = Enum.SortOrder.Name
+BUIGrid.Parent = BGridFrame
+
+local BSelectedColorPreview = Instance.new("Frame")
+BSelectedColorPreview.Size = UDim2.new(1, -20, 0, 16)
+BSelectedColorPreview.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+BSelectedColorPreview.LayoutOrder = BNextOrder()
+BSelectedColorPreview.Parent = BContent
+Instance.new("UICorner", BSelectedColorPreview).CornerRadius = UDim.new(0,4)
+Instance.new("UIStroke", BSelectedColorPreview).Color = Color3.fromRGB(60, 60, 60)
+
+for name, colorSeq in pairs(BulletColourTable) do
+    local btn = Instance.new("TextButton")
+    btn.Name = name
+    btn.Text = name
+    btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    btn.TextColor3 = Color3.fromRGB(220, 220, 220)
+    btn.Font = Enum.Font.GothamSemibold
+    btn.TextSize = 10
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+    local s = Instance.new("UIStroke", btn)
+    s.Color = Color3.fromRGB(60, 60, 60)
+    
+    btn.MouseButton1Click:Connect(function()
+        BulletColour = colorSeq
+        BSelectedColorPreview.BackgroundColor3 = colorSeq.Keypoints[1].Value
+        if BULLET_TRAILS_ENABLED then UpdateActiveBullets() end
+    end)
+    btn.Parent = BGridFrame
+end
+
+local BRGBFrame = Instance.new("Frame")
+BRGBFrame.Size = UDim2.new(1, -20, 0, 28)
+BRGBFrame.BackgroundTransparency = 1
+BRGBFrame.LayoutOrder = BNextOrder()
+BRGBFrame.Parent = BContent
+
+local function MakeMiniRGB(ph, col, px)
+    local box = Instance.new("TextBox")
+    box.Size = UDim2.new(0.31, 0, 1, 0)
+    box.Position = UDim2.new(px, 0, 0, 0)
+    box.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    box.PlaceholderText = ph
+    box.TextColor3 = col
+    box.Font = Enum.Font.Gotham
+    box.TextSize = 11
+    box.Parent = BRGBFrame
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0,4)
+    Instance.new("UIStroke", box).Color = Color3.fromRGB(60, 60, 60)
+    return box
+end
+
+local BRBox = MakeMiniRGB("R", Color3.fromRGB(255, 100, 100), 0)
+local BGBox = MakeMiniRGB("G", Color3.fromRGB(100, 255, 100), 0.345)
+local BBBox = MakeMiniRGB("B", Color3.fromRGB(100, 100, 255), 0.69)
+
+local BApplyRGB = CreateButton(BContent, BNextOrder(), "Apply Custom RGB")
+BApplyRGB.MouseButton1Click:Connect(function()
+    local r = tonumber(BRBox.Text)
+    local g = tonumber(BGBox.Text)
+    local b = tonumber(BBBox.Text)
+    
+    if not r and not g and not b then 
+        return
+    end
+    
+    r = math.clamp(r or 255, 0, 255)
+    g = math.clamp(g or 255, 0, 255)
+    b = math.clamp(b or 255, 0, 255)
+    
+    local newColor = Color3.fromRGB(r, g, b)
+    BulletColour = CNew(newColor)
+    BSelectedColorPreview.BackgroundColor3 = newColor
+    if BULLET_TRAILS_ENABLED then UpdateActiveBullets() end
+end)
+
+local updateBLife = CreateDecimalSlider(BContent, BNextOrder(), "Lifetime (s)", 0.05, 3.0, TrailTime, 2, function(val)
+    TrailTime = val
+    if BULLET_TRAILS_ENABLED then UpdateActiveBullets() end
+end)
+
+local updateBTransp = CreateDecimalSlider(BContent, BNextOrder(), "Opacity (0=Solid, 1=Invis)", 0.0, 1.0, BulletTransparency, 2, function(val)
+    BulletTransparency = val
+    if BULLET_TRAILS_ENABLED then UpdateActiveBullets() end
+end)
 
 -- // DROPDOWN LOGIC
 
@@ -1674,7 +2024,7 @@ local PopCloseBtn = Instance.new("TextButton")
 PopCloseBtn.Size = UDim2.new(0, 30, 0, 30)
 PopCloseBtn.Position = UDim2.new(1, -30, 0, 0)
 PopCloseBtn.BackgroundTransparency = 1
-PopCloseBtn.Text = "✕"
+PopCloseBtn.Text = "X"
 PopCloseBtn.TextColor3 = Color3.fromRGB(0, 180, 255)
 PopCloseBtn.TextSize = 14
 PopCloseBtn.Font = Enum.Font.GothamBold
@@ -2657,7 +3007,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if input.KeyCode == boundKey then FireToggle(toggleName) end
     end
     if input.KeyCode == Enum.KeyCode.K then
-        Frame.Visible = not Frame.Visible
+        Container.Visible = not Container.Visible
         HideSideCommandBar()
         SlideCmdBarOut()
     end
@@ -2697,6 +3047,7 @@ task.spawn(function()
         if Title then Title.TextColor3 = color end
         if SideTitle then SideTitle.TextColor3 = color end
         if PopTitle then PopTitle.TextColor3 = color end
+        if BTitleBar then BTitleBar.TextColor3 = color end
         task.wait()
     end
 end)
@@ -2786,9 +3137,9 @@ end)
 -- Execute Start Notification
 pcall(function()
     game:GetService("StarterGui"):SetCore("SendNotification", {
-        Title = "SLAXWARE 🐈",
+        Title = "SLAXWARE",
         Text = "K TO HIDE GUI / \":\" KEY FOR CMDBAR",
-        Icon = "rbxassetid://119068896904464",
+        Icon = "rbxassetid://11706449560",
         Duration = 8,
     })
 end)

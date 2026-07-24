@@ -1229,5 +1229,5 @@ task.spawn(function()
     end
 end)
 
-pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", { Title = "SLAXWARE 🐈", Text = "K TO HIDE GUI / \":\" KEY FOR CMDBAR", Icon = "rbxassetid://119068896904464", Duration = 8 }) end)
+pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", { Title = "SLAXWARE", Text = "K TO HIDE GUI / \":\" KEY FOR CMDBAR", Icon = "rbxassetid://11706449560", Duration = 8 }) end)
 print("✅ SlaxWare Loaded | Press : to open command bar | K to toggle main GUI")

@@ -27,11 +27,6 @@ local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
 -- -----------------------------------------------------
--- // AUTO-FIRE PROXIMITY PROMPTS – REMOVED COMPLETELY
--- // (no automatic buying when near items)
--- -----------------------------------------------------
-
--- -----------------------------------------------------
 -- // SILENT AIM & AIMLOCK SETTINGS
 -- -----------------------------------------------------
 
@@ -40,7 +35,7 @@ getgenv().Settings = {
     TeamCheck = false,
     AliveCheck = true,
     WallCheck = false,
-    Hitpart = "Head", -- "Head", "HumanoidRootPart", etc.
+    Hitpart = "Head",
     FOV = 150,
     ShowFOV = false,
     FOVColor = Color3.fromRGB(255, 255, 255),
@@ -49,7 +44,7 @@ getgenv().Settings = {
     FOVFilled = false,
 }
 
-getgenv().Aiming = getgenv().Settings -- Alias for backward compatibility
+getgenv().Aiming = getgenv().Settings
 
 local Camera = workspace.CurrentCamera
 
@@ -61,7 +56,6 @@ local CAMLOCK_TARGET = nil
 local CAMLOCK_ENABLED = false
 
 -- // New feature states
-local SAVEINVENTORY_ENABLED = false
 local LASTPOS_ENABLED = false
 local LASTPOS_VALUE = nil -- stores CFrame of last death position
 local NOSLOW_ENABLED = false
@@ -102,7 +96,6 @@ local function GetClosestPlayerToCursor()
     local closestPlayer = nil
     local shortestDistance = Settings.FOV
 
-    -- If a hard target lock is currently active, bypass cursor proximity checks
     if NAME_AIMLOCK_ENABLED and NAME_AIMLOCK_TARGET then
         local target = NAME_AIMLOCK_TARGET
         if target and target.Character and target.Character:FindFirstChild(Settings.Hitpart) then
@@ -146,7 +139,6 @@ OldIndex = hookmetamethod(game, "__index", newcclosure(function(self, index)
         if target and target.Character then
             local hitpart = target.Character:FindFirstChild(Settings.Hitpart)
             if hitpart then
-                -- Apply tiny offset so shots align perfectly with velocity prediction
                 local predictedPosition = hitpart.CFrame + (hitpart.Velocity * 0.125)
                 return predictedPosition
             end
@@ -160,7 +152,6 @@ OldNewIndex = hookmetamethod(game, "__newindex", newcclosure(function(self, inde
     if not checkcaller() then
         local name = tostring(self)
         if name == "HumanoidRootPart" or name == "Torso" then
-            -- Block client-side anti-cheat resetting position/velocity
             if index == "CFrame" or index == "Velocity" or index == "AssemblyLinearVelocity" then
                 return
             end
@@ -180,17 +171,16 @@ OldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
             local remoteName = tostring(self)
             if remoteName == "Input" then
                 local action = args[1]
-                -- Freezing the check threads for BodyVelocity (bv), Heartbeat (hb), and WalkSpeed (ws)
                 if action == "bv" or action == "hb" or action == "ws" then
-                    return coroutine.yield() -- Yield calling thread forever to disable anti-cheat scans
+                    return coroutine.yield()
                 end
             elseif remoteName == "WalkSpeed" or remoteName == "JumpPower" or remoteName == "HipHeight" then
-                return nil -- Block outgoing reports of modified character properties
+                return nil
             end
         elseif methodName == "PivotTo" or methodName == "MoveTo" or methodName == "SetPrimaryPartCFrame" then
             local name = tostring(self)
             if name == "HumanoidRootPart" or name == "Torso" or self:IsA("Model") and (self.Name == LocalPlayer.Name or self == LocalPlayer.Character) then
-                return nil -- Block client-side anti-cheat from teleporting/resetting the player character
+                return nil
             end
         end
     end
@@ -201,7 +191,6 @@ OldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
             local hitpart = target.Character:FindFirstChild(Settings.Hitpart)
             if hitpart then
                 local predictedPosition = hitpart.CFrame + (hitpart.Velocity * 0.125)
-                -- Overwrite raycast logic to force hit registered on predicted CFrame
                 args[1] = Ray.new(Camera.CFrame.Position, (predictedPosition.Position - Camera.CFrame.Position).Unit * 1000)
             end
         end
@@ -226,6 +215,7 @@ Frame.BorderSizePixel = 0
 Frame.Active = true
 Frame.Draggable = false
 Frame.Visible = true
+Frame.ClipsDescendants = true
 Frame.Parent = ScreenGui
 
 local Title = Instance.new("TextLabel")
@@ -237,6 +227,31 @@ Title.TextColor3 = Color3.fromRGB(0, 180, 255)
 Title.TextSize = 18
 Title.Font = Enum.Font.GothamBold
 Title.Parent = Frame
+
+-- GUI Minimize Button
+local MinimizeBtn = Instance.new("TextButton")
+MinimizeBtn.Size = UDim2.new(0, 40, 0, 40)
+MinimizeBtn.Position = UDim2.new(1, -40, 0, 0)
+MinimizeBtn.BackgroundTransparency = 1
+MinimizeBtn.Text = "-"
+MinimizeBtn.TextColor3 = Color3.fromRGB(0, 180, 255)
+MinimizeBtn.TextSize = 24
+MinimizeBtn.Font = Enum.Font.GothamBold
+MinimizeBtn.Parent = Title
+
+local isMinimized = false
+local expandedHeight = 792
+
+MinimizeBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    if isMinimized then
+        TweenService:Create(Frame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0, 280, 0, 40)}):Play()
+        MinimizeBtn.Text = "+"
+    else
+        TweenService:Create(Frame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0, 280, 0, expandedHeight)}):Play()
+        MinimizeBtn.Text = "-"
+    end
+end)
 
 -- Simple drag script logic
 do
@@ -668,7 +683,6 @@ RunService.Heartbeat:Connect(function()
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if humanoid and hrp and humanoid.MoveDirection.Magnitude > 0 then
-        -- Project position slightly forward proportional to MoveDirection
         hrp.CFrame = hrp.CFrame + humanoid.MoveDirection * (TPWALK_SPEED * 0.016)
     end
 end)
@@ -856,7 +870,6 @@ RunService.RenderStepped:Connect(function()
     if not CAMLOCK_ENABLED or not CAMLOCK_TARGET then return end
     local char = CAMLOCK_TARGET.Character
     if char then
-        -- Aiming camera straight at target's selected hitpart
         local part = char:FindFirstChild(Settings.Hitpart)
         if part then
             Camera.CFrame = CFrame.new(Camera.CFrame.Position, part.Position)
@@ -888,13 +901,11 @@ FlySpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
 FlySpeedLabel.Parent = Frame
 
 local FlySpeedSlider = Instance.new("Frame")
-FlySpeedSlider.Size = UDim2.new(0.9, 0, 0, 583)
+FlySpeedSlider.Size = UDim2.new(0.9, 0, 0, 6)
 FlySpeedSlider.Position = UDim2.new(0.05, 0, 0, 583)
 FlySpeedSlider.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 FlySpeedSlider.BorderSizePixel = 0
 FlySpeedSlider.Parent = Frame
--- Fix size overlay issue
-FlySpeedSlider.Size = UDim2.new(0.9, 0, 0, 6) 
 
 local FlySpeedKnob = Instance.new("Frame")
 FlySpeedKnob.Size = UDim2.new(0, 16, 0, 16)
@@ -936,7 +947,6 @@ getgenv().FLY_ENABLED = false
 local flyConnection = nil
 local flySpeedVector = Vector3.new(0, 0, 0)
 
--- Store original speed values for restoration
 local savedWalkSpeed = 16
 local savedJumpPower = 50
 
@@ -954,17 +964,15 @@ local function StopFly()
         local humanoid = character:FindFirstChildOfClass("Humanoid")
         if humanoid then
             humanoid.PlatformStand = false
-            -- Restore original WalkSpeed and JumpPower (saved at fly start)
             humanoid.WalkSpeed = savedWalkSpeed
             humanoid.JumpPower = savedJumpPower
-            -- Force a small state refresh to re‑enable sprint
             humanoid:ChangeState(Enum.HumanoidStateType.Running)
         end
     end
 end
 
 local function StartFly()
-    StopFly() -- Prevent duplicate overlapping connections
+    StopFly()
     local character = LocalPlayer.Character
     if not character then return end
     local hrp = character:FindFirstChild("HumanoidRootPart")
@@ -972,13 +980,11 @@ local function StartFly()
 
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if humanoid then
-        -- Save current speed values before changing
         savedWalkSpeed = humanoid.WalkSpeed
         savedJumpPower = humanoid.JumpPower
         humanoid.PlatformStand = true
     end
 
-    -- Anchoring anti-gravity body velocities in script
     local bv = Instance.new("BodyVelocity")
     bv.Name = "SlaxFlyBV"
     bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
@@ -1010,7 +1016,6 @@ local function StartFly()
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then direction = direction - Vector3.new(0, 1, 0) end
 
         if direction.Magnitude > 0 then
-            -- Cap flight speed at 150 studs/sec to completely prevent server-side physics engine lagbacks (rubberbanding)
             local clampedSpeed = math.min(FLY_SPEED, 150)
             vel.Velocity = direction.Unit * clampedSpeed
         else
@@ -1032,7 +1037,6 @@ FlyToggle.MouseButton1Click:Connect(function()
     end
 end)
 
--- Re-enable platform state if character respawns while Fly toggled active
 LocalPlayer.CharacterAdded:Connect(function()
     if FLY_ENABLED then
         task.wait(0.5)
@@ -1064,7 +1068,6 @@ NoclipToggle.MouseButton1Click:Connect(function()
     end
 end)
 
--- Noclip logic
 RunService.Stepped:Connect(function()
     if not NOCLIP_ENABLED then return end
     local character = LocalPlayer.Character
@@ -1124,10 +1127,8 @@ InfStamToggle.MouseButton1Click:Connect(function()
     end
 end)
 
--- // SAVEINVENTORY + LASTPOS + NOSLOW — standalone approach
--- Hooks into every character spawn so commands work regardless of when they're enabled
+-- // LASTPOS + NOSLOW — standalone approach
 
--- // NOSLOW — detosware method: hook TagSystem.has + Heartbeat loop
 local NOSLOW_TAGS = {
     ["reloading"] = true,
     ["ko"] = true,
@@ -1136,7 +1137,6 @@ local NOSLOW_TAGS = {
     ["gunslow"] = true,
 }
 
--- Hook TagSystem.has so the game never "sees" slow tags on the local character
 local _tagSystemHooked = false
 local _oldTagHas = nil
 local function HookTagSystem()
@@ -1150,7 +1150,7 @@ local function HookTagSystem()
                 _oldTagHas = TagSystem.has
                 TagSystem.has = function(object, tag)
                     if NOSLOW_ENABLED and object == LocalPlayer.Character and tag and NOSLOW_TAGS[tag:lower()] then
-                        return nil -- spoof: tag doesn't exist
+                        return nil
                     end
                     return _oldTagHas(object, tag)
                 end
@@ -1160,7 +1160,6 @@ local function HookTagSystem()
     end)
 end
 
--- Heartbeat loop: destroy Action/slow children every frame when noslow is on
 RunService.Heartbeat:Connect(function()
     if not NOSLOW_ENABLED then return end
     local char = LocalPlayer.Character
@@ -1172,7 +1171,6 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- Hook TagSystem on load if already available, else retry when character spawns
 task.spawn(HookTagSystem)
 LocalPlayer.CharacterAdded:Connect(function()
     task.wait(1)
@@ -1183,17 +1181,14 @@ local function SlaxHookCharacter(character)
     local humanoid = character:WaitForChild("Humanoid", 10)
     local hrp = character:WaitForChild("HumanoidRootPart", 10)
 
-    -- LASTPOS: wait a couple frames for the game's own spawn logic to finish,
-    -- then override the position using fresh references (avoids stale closure crash on fast resets)
     if LASTPOS_ENABLED and LASTPOS_VALUE then
-        local savedPos = LASTPOS_VALUE -- snapshot value now in case it changes before delay fires
+        local savedPos = LASTPOS_VALUE
         task.delay(0.25, function()
             pcall(function()
                 local freshChar = LocalPlayer.Character
                 if not freshChar or not freshChar.Parent then return end
                 local freshHrp = freshChar:FindFirstChild("HumanoidRootPart")
                 if not freshHrp or not freshHrp.Parent then return end
-                -- Only teleport if this is still the same character spawn we hooked
                 if freshChar ~= character then return end
                 freshHrp.CFrame = savedPos
                 Notify("Last Pos", "Teleported to last position")
@@ -1203,17 +1198,17 @@ local function SlaxHookCharacter(character)
 
     if not humanoid then return end
     
-    -- INFINITE STAMINA: Hook up if enabled
     if INFSTAM_ENABLED then
         task.spawn(ApplyInfStam, character)
     end
 
-    -- Clean up fly connections/state on character death
     humanoid.Died:Connect(function()
         if FLY_ENABLED then StopFly() end
+        if hrp and hrp.Parent then
+            LASTPOS_VALUE = hrp.CFrame
+        end
     end)
 
-    -- NOSLOW: initial clear of any slow tags already present on spawn
     if NOSLOW_ENABLED then
         for _, child in pairs(character:GetChildren()) do
             if NOSLOW_TAGS[child.Name:lower()] then
@@ -1221,46 +1216,6 @@ local function SlaxHookCharacter(character)
             end
         end
     end
-
-    -- SAVEINVENTORY: guard against destroyed character during reset/death
-    local _saveInvBusy = false
-    humanoid.Died:Connect(function()
-        -- Save death CFrame for lastpos
-        if hrp and hrp.Parent then
-            LASTPOS_VALUE = hrp.CFrame
-        end
-
-        -- Saveinventory: equip a tool right before break joints so server saves it
-        if SAVEINVENTORY_ENABLED and not _saveInvBusy then
-            _saveInvBusy = true
-            task.spawn(function()
-                -- Bail immediately if character is already gone/unparented
-                if not character or not character.Parent then _saveInvBusy = false; return end
-                if not humanoid or not humanoid.Parent then _saveInvBusy = false; return end
-
-                -- If nothing equipped, pull from backpack first
-                if not character:FindFirstChildOfClass("Tool") then
-                    local bp = LocalPlayer:FindFirstChild("Backpack")
-                    local bp_tool = bp and bp:FindFirstChildOfClass("Tool")
-                    if bp_tool and character.Parent then
-                        pcall(function() bp_tool.Parent = character end)
-                        task.wait(0.05)
-                    end
-                end
-
-                -- Re-check everything still valid before UnequipTools
-                if character and character.Parent
-                    and humanoid and humanoid.Parent
-                    and character:FindFirstChildOfClass("Tool") then
-                    pcall(function() humanoid:UnequipTools() end)
-                    task.wait(0.05)
-                end
-
-                _saveInvBusy = false
-                Notify("Save Inventory", "Inventory saved!")
-            end)
-        end
-    end)
 end
 
 LocalPlayer.CharacterAdded:Connect(function(character)
@@ -1272,12 +1227,9 @@ LocalPlayer.CharacterAdded:Connect(function(character)
     SlaxHookCharacter(character)
 end)
 
--- Hook current character too in case script loads mid-game
 if LocalPlayer.Character then
     task.spawn(SlaxHookCharacter, LocalPlayer.Character)
 end
-
--- Redundant broken key listener removed to fix GUI initialization bugs
 
 print("✅ SlaxWare Loaded | : = Command Bar | K = Toggle GUI")
 
@@ -1288,7 +1240,7 @@ local lastResetTime = 0
 local function safeResetCharacter()
     if not AUTO_RESET_ENABLED then return end
     local currentTime = tick()
-    if currentTime - lastResetTime < 2 then return end -- 2 second cooldown
+    if currentTime - lastResetTime < 2 then return end
 
     local character = LocalPlayer.Character
     if not character then return end
@@ -1303,12 +1255,10 @@ local function safeResetCharacter()
     lastResetTime = currentTime
     print("⚠️ Low HP (" .. math.floor(humanoid.Health) .. ") - Forcing Reset!")
 
-    -- Primary reset method
     pcall(function()
         LocalPlayer:LoadCharacter()
     end)
 
-    -- Backup: Kill humanoid if LoadCharacter didn't work
     task.delay(0.5, function()
         pcall(function()
             if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
@@ -1318,10 +1268,8 @@ local function safeResetCharacter()
     end)
 end
 
--- Main monitoring loop (very frequent)
 RunService.Heartbeat:Connect(safeResetCharacter)
 
--- Reconnect on respawn
 LocalPlayer.CharacterAdded:Connect(function()
     task.wait(0.8)
     print("✅ Respawned - Auto reset active again")
@@ -1402,7 +1350,6 @@ local function SetAimlockTarget(plr)
         AimlockDropBtn.TextColor3 = Color3.fromRGB(255, 200, 50)
         NameAimlockStatus.Text = "Status: LOCKED"
         NameAimlockStatus.TextColor3 = Color3.fromRGB(0, 200, 80)
-        -- Auto-disable FOV lock so name aimlock has full range
         Aiming.ShowFOV = false
         Aiming.FOV = 9999
         Settings.ShowFOV = false
@@ -1500,7 +1447,6 @@ AimlockDropBtn.FocusLost:Connect(function(enterPressed)
     end)
 end)
 
--- Auto-clear Name Aimlock if the target leaves the game
 Players.PlayerRemoving:Connect(function(plr)
     if plr == NAME_AIMLOCK_TARGET then
         SetAimlockTarget(nil)
@@ -1514,20 +1460,15 @@ Players.PlayerAdded:Connect(function()
 end)
 
 -- -----------------------------------------------------
--- // SLIDING COMMAND BAR STRIP (separate from main GUI)
--- Slides up from the bottom on "/" and back down after submit
+-- // SLIDING COMMAND BAR STRIP
 -- -----------------------------------------------------
-
--- Forward-declare ParseCommand so FocusLost can reference it
 local ParseCommand
 
 local CmdBarTweenInfo = TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 
--- The strip frame (lives in ScreenGui, NOT inside the main Frame)
 local CmdBarFrame = Instance.new("Frame")
 CmdBarFrame.Name = "SlaxCmdBar"
 CmdBarFrame.Size = UDim2.new(0, 380, 0, 48)
--- Slides in from the right edge
 local CMD_BAR_OPEN_POS   = UDim2.new(1, -400, 0.5, -24)
 local CMD_BAR_CLOSED_POS = UDim2.new(1,   20, 0.5, -24)
 CmdBarFrame.Position = CMD_BAR_CLOSED_POS
@@ -1536,7 +1477,7 @@ CmdBarFrame.BackgroundTransparency = 0.08
 CmdBarFrame.BorderSizePixel = 0
 CmdBarFrame.ZIndex = 20
 CmdBarFrame.ClipsDescendants = true
-CmdBarFrame.Visible = true  -- always rendered; position hides it
+CmdBarFrame.Visible = true
 CmdBarFrame.Parent = ScreenGui
 
 do
@@ -1551,7 +1492,6 @@ do
     stroke.Parent = CmdBarFrame
 end
 
--- Prompt label on the left
 local CmdBarPrompt = Instance.new("TextLabel")
 CmdBarPrompt.Size = UDim2.new(0, 28, 1, 0)
 CmdBarPrompt.Position = UDim2.new(0, 0, 0, 0)
@@ -1563,7 +1503,6 @@ CmdBarPrompt.Font = Enum.Font.GothamBold
 CmdBarPrompt.ZIndex = 21
 CmdBarPrompt.Parent = CmdBarFrame
 
--- The actual text input
 local CmdBarBox = Instance.new("TextBox")
 CmdBarBox.Size = UDim2.new(1, -36, 0, 34)
 CmdBarBox.Position = UDim2.new(0, 28, 0.5, -17)
@@ -1584,7 +1523,6 @@ do
     pad.Parent = CmdBarBox
 end
 
--- Feedback label (appears just above the bar briefly)
 local MainCmdFeedback = Instance.new("TextLabel")
 MainCmdFeedback.Size = UDim2.new(1, -16, 0, 18)
 MainCmdFeedback.Position = UDim2.new(0, 8, 0, -20)
@@ -1596,17 +1534,14 @@ MainCmdFeedback.Font = Enum.Font.Gotham
 MainCmdFeedback.ZIndex = 21
 MainCmdFeedback.Parent = CmdBarFrame
 
--- Alias so old code references still work
 local CmdBox = CmdBarBox
 local CmdFeedback = MainCmdFeedback
 
--- Slide state
 local isCmdBarOpen = false
 local cmdBarCloseThread = nil
 
 local function SlideCmdBarIn()
     if isCmdBarOpen then
-        -- Already open, just re-focus
         task.defer(function() CmdBarBox:CaptureFocus() end)
         return
     end
@@ -1634,7 +1569,7 @@ end
 local SideFrame = Instance.new("Frame")
 SideFrame.Name = "SideCmdBarFrame"
 SideFrame.Size = UDim2.new(0, 300, 0, 70)
-SideFrame.Position = UDim2.new(1, 10, 0.5, -35) -- Hidden position off-screen
+SideFrame.Position = UDim2.new(1, 10, 0.5, -35)
 SideFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 SideFrame.BackgroundTransparency = 0.15
 SideFrame.BorderSizePixel = 0
@@ -1754,13 +1689,11 @@ SideCmdBox.FocusLost:Connect(function(enterPressed)
         CmdFeedback = SideCmdFeedback
         local txt = SideCmdBox.Text
         SideCmdBox.Text = ""
-        -- Slide out immediately, then run command async so the thread never stalls
         HideSideCommandBar()
         task.spawn(ParseCommand, txt)
     else
-        -- Lost focus without enter: slide out after short delay
         sideCloseThread = task.delay(0.3, function()
-            sideCloseThread = nil -- BUG FIX
+            sideCloseThread = nil
             if not SideCmdBox:HasFocus() then
                 HideSideCommandBar()
             end
@@ -1768,10 +1701,7 @@ SideCmdBox.FocusLost:Connect(function(enterPressed)
     end
 end)
 
--- Binds table: [toggleName] = KeyCode enum name string
 local Binds = {}
-
--- Remembers the last Name Aimlock target so we can restore it when re-enabling
 local _lastNameAimlockTarget = nil
 local ITEM_ESP_ACTIVE=false;
 local ITEM_ESP_OBJECTS={}
@@ -1787,59 +1717,32 @@ local GET_ITEMS={
     ["uzi"]  ={label="🔫 Uzi ",   texture="rbxassetid://4529712484",                               names={"Uzi","uzi","UZI"}},
 }
 
--- Helper: map a simple key string to the Enum.KeyCode name
 local function ResolveKeyCode(keyStr)
-    -- Single letter A-Z
-    if #keyStr == 1 and keyStr:match("^%a$") then
-        return "KeyCode." .. keyStr:upper()
-    end
-    -- F1-F12
-    if keyStr:match("^[fF]%d%d?$") then
-        return "KeyCode." .. keyStr:upper()
-    end
-    -- Named keys mapping
+    if #keyStr == 1 and keyStr:match("^%a$") then return "KeyCode." .. keyStr:upper() end
+    if keyStr:match("^[fF]%d%d?$") then return "KeyCode." .. keyStr:upper() end
     local named = {
-        ["space"] = "KeyCode.Space",
-        ["shift"] = "KeyCode.LeftShift",
-        ["lshift"] = "KeyCode.LeftShift",
-        ["rshift"] = "KeyCode.RightShift",
-        ["ctrl"] = "KeyCode.LeftControl",
-        ["lctrl"] = "KeyCode.LeftControl",
-        ["rctrl"] = "KeyCode.RightControl",
-        ["alt"] = "KeyCode.LeftAlt",
-        ["lalt"] = "KeyCode.LeftAlt",
-        ["ralt"] = "KeyCode.RightAlt",
-        ["tab"] = "KeyCode.Tab",
-        ["capslock"] = "KeyCode.CapsLock",
-        ["enter"] = "KeyCode.Return",
-        ["return"] = "KeyCode.Return",
-        ["backspace"] = "KeyCode.Backspace",
-        ["delete"] = "KeyCode.Delete",
-        ["insert"] = "KeyCode.Insert",
-        ["home"] = "KeyCode.Home",
-        ["end"] = "KeyCode.End",
-        ["pageup"] = "KeyCode.PageUp",
-        ["pagedown"] = "KeyCode.PageDown",
-        ["up"] = "KeyCode.Up",
-        ["down"] = "KeyCode.Down",
-        ["left"] = "KeyCode.Left",
-        ["right"] = "KeyCode.Right",
-        ["num0"] = "KeyCode.Zero",
-        ["num1"] = "KeyCode.One",
-        ["num2"] = "KeyCode.Two",
-        ["num3"] = "KeyCode.Three",
-        ["num4"] = "KeyCode.Four",
-        ["num5"] = "KeyCode.Five",
-        ["num6"] = "KeyCode.Six",
-        ["num7"] = "KeyCode.Seven",
-        ["num8"] = "KeyCode.Eight",
+        ["space"] = "KeyCode.Space", ["shift"] = "KeyCode.LeftShift",
+        ["lshift"] = "KeyCode.LeftShift", ["rshift"] = "KeyCode.RightShift",
+        ["ctrl"] = "KeyCode.LeftControl", ["lctrl"] = "KeyCode.LeftControl",
+        ["rctrl"] = "KeyCode.RightControl", ["alt"] = "KeyCode.LeftAlt",
+        ["lalt"] = "KeyCode.LeftAlt", ["ralt"] = "KeyCode.RightAlt",
+        ["tab"] = "KeyCode.Tab", ["capslock"] = "KeyCode.CapsLock",
+        ["enter"] = "KeyCode.Return", ["return"] = "KeyCode.Return",
+        ["backspace"] = "KeyCode.Backspace", ["delete"] = "KeyCode.Delete",
+        ["insert"] = "KeyCode.Insert", ["home"] = "KeyCode.Home",
+        ["end"] = "KeyCode.End", ["pageup"] = "KeyCode.PageUp",
+        ["pagedown"] = "KeyCode.PageDown", ["up"] = "KeyCode.Up",
+        ["down"] = "KeyCode.Down", ["left"] = "KeyCode.Left",
+        ["right"] = "KeyCode.Right", ["num0"] = "KeyCode.Zero",
+        ["num1"] = "KeyCode.One", ["num2"] = "KeyCode.Two",
+        ["num3"] = "KeyCode.Three", ["num4"] = "KeyCode.Four",
+        ["num5"] = "KeyCode.Five", ["num6"] = "KeyCode.Six",
+        ["num7"] = "KeyCode.Seven", ["num8"] = "KeyCode.Eight",
         ["num9"] = "KeyCode.Nine",
     }
     return named[keyStr:lower()]
 end
 
--- Toggle dispatcher: given a name, flip the toggle
--- Helper: fire a Roblox toast notification
 local function Notify(title, text)
     pcall(function()
         game:GetService("StarterGui"):SetCore("SendNotification", {
@@ -1852,27 +1755,22 @@ end
 
 local function FireToggle(name)
     if name == "aimlock" then
-        -- True if either the main aimlock OR the name aimlock is currently active
         local anyActive = Aiming.Enabled or NAME_AIMLOCK_ENABLED
         if anyActive then
-            -- ──── Turn EVERYTHING off ─────────────────────────
             Aiming.Enabled = false
             Settings.Enabled = false
             ToggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
             ToggleBtn.Text = "Disabled CursorLock"
-            -- Save + clear the Name Aimlock target
             if NAME_AIMLOCK_ENABLED and NAME_AIMLOCK_TARGET then
                 _lastNameAimlockTarget = NAME_AIMLOCK_TARGET
             end
             SetAimlockTarget(nil)
             Notify("Aimlock", "🔴 Turned OFF")
         else
-            -- ──── Turn main aimlock back ON ───────────────────
             Aiming.Enabled = true
             Settings.Enabled = true
             ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
             ToggleBtn.Text = "Enabled CursorLock"
-            -- Restore the last Name Aimlock target if one was saved
             if _lastNameAimlockTarget then
                 SetAimlockTarget(_lastNameAimlockTarget)
                 _lastNameAimlockTarget = nil
@@ -1923,8 +1821,6 @@ local function FireToggle(name)
         FOVCircleToggle.Text = Settings.ShowFOV and "CursorLock Circle: Visible" or "CursorLock Circle: Hidden"
         Notify("FOV Circle", Settings.ShowFOV and "🟢 Turned ON" or "🔴 Turned OFF")
     elseif name == "keylock" then
-        -- Mouse Keylock: lock aimlock onto whoever the cursor is currently hovering over.
-        -- Uses the same FOV-cursor search as CursorLock but ignores FOV limit (full range).
         local target = nil
         local shortestDist = math.huge
         local mouseLocation = UserInputService:GetMouseLocation()
@@ -1945,7 +1841,6 @@ local function FireToggle(name)
             end
         end
         if target then
-            -- Enable cursorlock + name aimlock on the hovered player
             Aiming.Enabled = true
             Settings.Enabled = true
             ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
@@ -1953,7 +1848,6 @@ local function FireToggle(name)
             SetAimlockTarget(target)
             Notify("KeyLock", "🎯 Locked → " .. target.Name)
         else
-            -- No player near cursor: clear aimlock instead
             Aiming.Enabled = false
             Settings.Enabled = false
             ToggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
@@ -1962,24 +1856,16 @@ local function FireToggle(name)
             Notify("KeyLock", "🔴 No target — cleared")
         end
     elseif name == "reset" then
-        -- Reset character instantly
         pcall(function() LocalPlayer.Character:FindFirstChildOfClass("Humanoid").Health = 0 end)
         Notify("Reset", "💀 Character reset")
     end
 end
 
--- Valid toggle names for validation
 local VALID_TOGGLES = {
-    ["aimlock"] = true,
-    ["autoreset"] = true,
-    ["fly"] = true,
-    ["noclip"] = true,
-    ["infstam"] = true,
-    ["camlock"] = true,
-    ["tpwalk"] = true,
-    ["fovvisible"] = true,
-    ["keylock"] = true, -- mouse-target aimlock setter
-    ["reset"] = true,  -- reset character
+    ["aimlock"] = true, ["autoreset"] = true, ["fly"] = true,
+    ["noclip"] = true, ["infstam"] = true, ["camlock"] = true,
+    ["tpwalk"] = true, ["fovvisible"] = true, ["keylock"] = true,
+    ["reset"] = true,
 }
 
 -- -----------------------------------------------------
@@ -2009,7 +1895,7 @@ local CMD_LIST = {
     { cmd = "itemesp", desc = "ESP all scannable items in world" },
     { cmd = "unitemesp",desc = "Remove item ESP" },
     { cmd = "", desc = "── Bindable toggles ──────────────────" },
-    { cmd = "aimlock {player}", desc = "Lock aimlock onto player (or 'off' to clear, no arg = toggle)" },
+    { cmd = "aimlock {player}", desc = "Lock aimlock onto player (or 'off' to clear)" },
     { cmd = "autoreset", desc = "Auto reset character at ≤10 HP" },
     { cmd = "fly", desc = "Enable fly mode" },
     { cmd = "unfly", desc = "Disable fly mode" },
@@ -2017,15 +1903,13 @@ local CMD_LIST = {
     { cmd = "noclip", desc = "No-clip through walls" },
     { cmd = "infstam", desc = "Enable infinite stamina" },
     { cmd = "uninfstam", desc = "Disable infinite stamina" },
-    { cmd = "rainbowhats", desc = "Rainbow-cycle all hat colors in phone GUI (toggle)" },
     { cmd = "rejoin", desc = "Rejoin the current server" },
-    { cmd = "camlock {player}", desc = "Camlock onto player by name (or 'off' to clear)" },
+    { cmd = "camlock {player}", desc = "Camlock onto player by name" },
     { cmd = "tpwalk", desc = "Teleport-step walking" },
     { cmd = "fovvisible", desc = "Show / hide the FOV circle" },
     { cmd = "keylock", desc = "Hover cursor on a player + press bind to lock aimlock on them" },
     { cmd = "esp {player}", desc = "Toggle ESP for player (or 'all', 'off')" },
-    { cmd = "", desc = "── Inventory & Movement ──────────────" },
-    { cmd = "saveinventory", desc = "Save tools on death so you respawn with them" },
+    { cmd = "", desc = "── Movement & Mods ───────────────────" },
     { cmd = "lastpos", desc = "Teleport back to where you died on respawn" },
     { cmd = "unlastpos", desc = "Disable last position teleport" },
     { cmd = "noslow", desc = "Remove slow/action tags (no reload slow, etc.)" },
@@ -2037,8 +1921,7 @@ local CMD_LIST = {
 local ROW_H = 34
 local POPUP_W = 420
 local HEADER_H = 38
-local CONTENT_H = #CMD_LIST * ROW_H -- full canvas height
--- Clamp popup height to 80% of screen height so it always fits
+local CONTENT_H = #CMD_LIST * ROW_H
 local screenH = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.Y or 600
 local MAX_POPUP_H = math.floor(screenH * 0.80)
 local POPUP_H = math.min(HEADER_H + CONTENT_H + 8, MAX_POPUP_H)
@@ -2046,7 +1929,6 @@ local POPUP_H = math.min(HEADER_H + CONTENT_H + 8, MAX_POPUP_H)
 local CmdPopup = Instance.new("Frame")
 CmdPopup.Name = "SlaxCmdPopup"
 CmdPopup.Size = UDim2.new(0, POPUP_W, 0, POPUP_H)
--- Centered slightly to the right of the main panel so they don't overlap
 CmdPopup.Position = UDim2.new(0.5, 160, 0.5, -POPUP_H/2)
 CmdPopup.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 CmdPopup.BorderSizePixel = 1
@@ -2093,7 +1975,6 @@ PopTitle.TextSize = 13
 PopTitle.Font = Enum.Font.GothamBold
 PopTitle.Parent = CmdPopup
 
--- Small X Close button in the corner
 local PopCloseBtn = Instance.new("TextButton")
 PopCloseBtn.Size = UDim2.new(0, 24, 0, 24)
 PopCloseBtn.Position = UDim2.new(1, -30, 0, 7)
@@ -2182,30 +2063,22 @@ end
 -- // COMMAND INTERPRETER ENGINE
 -- -----------------------------------------------------
 
--- Helper: find a player by exact or partial name (case-insensitive)
 local function FindPlayerByName(query)
     if not query or query == "" then return nil end
     local q = query:lower()
-    -- Exact match first
     for _, plr in pairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
-            if plr.Name:lower() == q or plr.DisplayName:lower() == q then
-                return plr
-            end
+            if plr.Name:lower() == q or plr.DisplayName:lower() == q then return plr end
         end
     end
-    -- Partial match second
     for _, plr in pairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
-            if plr.Name:lower():find(q, 1, true) or plr.DisplayName:lower():find(q, 1, true) then
-                return plr
-            end
+            if plr.Name:lower():find(q, 1, true) or plr.DisplayName:lower():find(q, 1, true) then return plr end
         end
     end
     return nil
 end
 
--- Helper: sync camlock target to GUI without touching the toggle state
 local function SetCamlockTarget(plr)
     CAMLOCK_TARGET = plr
     if plr then
@@ -2220,27 +2093,20 @@ local function SetCamlockTarget(plr)
 end
 
 function ParseCommand(inputStr)
-    -- Clean surrounding whitespaces
     local cleanInput = inputStr:match("^%s*(.-)%s*$")
     if cleanInput == "" then return end
 
-    -- Parse parts separated by whitespace
     local parts = {}
-    for word in cleanInput:gmatch("%S+") do
-        table.insert(parts, word)
-    end
-
+    for word in cleanInput:gmatch("%S+") do table.insert(parts, word) end
     if #parts == 0 then return end
     local cmd = parts[1]:lower()
 
-    -- HELP command: quick start guide
     if cmd == "help" then
         CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 255)
         CmdFeedback.Text = "Try: bind aimlock f  | unbind aimlock  |  get money  |  cmd"
         return
     end
 
-    -- CMD list visibility command: cmd  (only opens; close via the ✕ button)
     if cmd == "cmd" then
         CmdPopup.Visible = true
         CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
@@ -2248,13 +2114,8 @@ function ParseCommand(inputStr)
         return
     end
 
-    -- CHATENABLE command: re-enable Roblox chat (CoreGui + TextChatService + legacy Chat)
     if cmd == "chatenable" then
-        -- Restore CoreGui chat bubble/bar visibility
-        pcall(function()
-            game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Chat, true)
-        end)
-        -- Re-enable TextChatService chat window & send bar (modern chat)
+        pcall(function() game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Chat, true) end)
         pcall(function()
             local tcs = game:GetService("TextChatService")
             if tcs then
@@ -2262,18 +2123,12 @@ function ParseCommand(inputStr)
                 tcs.ChatInputBarConfiguration.Enabled = true
             end
         end)
-        -- Re-enable legacy Chat service visibility
-        pcall(function()
-            game:GetService("Chat"):SetVisible(true)
-        end)
-        -- Re-enable PlayerGui chat frames if they were hidden
+        pcall(function() game:GetService("Chat"):SetVisible(true) end)
         pcall(function()
             local pg = LocalPlayer:WaitForChild("PlayerGui", 3)
             if pg then
                 for _, gui in ipairs(pg:GetChildren()) do
-                    if gui.Name == "Chat" or gui.Name == "BubbleChat" then
-                        gui.Enabled = true
-                    end
+                    if gui.Name == "Chat" or gui.Name == "BubbleChat" then gui.Enabled = true end
                 end
             end
         end)
@@ -2283,34 +2138,18 @@ function ParseCommand(inputStr)
         return
     end
 
-    -- REJOIN command: server hop back into the same server
     if cmd == "rejoin" then
         CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
         CmdFeedback.Text = "Rejoining server..."
         task.wait(0.5)
-        local ts = game:GetService("TeleportService")
-        pcall(function()
-            ts:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
-        end)
+        pcall(function() game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end)
         return
     end
 
-    -- RAINBOW HATS toggle handler
-    if cmd == "rainbowhats" then
-        RAINBOWHATS_ENABLED = not RAINBOWHATS_ENABLED
-        CmdFeedback.TextColor3 = RAINBOWHATS_ENABLED and Color3.fromRGB(0, 220, 80) or Color3.fromRGB(255, 80, 80)
-        CmdFeedback.Text = RAINBOWHATS_ENABLED and "🌈 Rainbow Hats: ON" or "🌈 Rainbow Hats: OFF"
-        Notify("Rainbow Hats", RAINBOWHATS_ENABLED and "🟢 ON" or "🔴 OFF")
-        return
-    end
-
-    -- CAMLOCK {player} command: sets camlock target and enables camlock
-    -- Also: "camlock off" or "camlock none" clears the target
     if cmd == "camlock" then
         if #parts >= 2 then
             local arg = parts[2]:lower()
             if arg == "off" or arg == "none" or arg == "clear" then
-                -- Disable camlock and clear target
                 CAMLOCK_ENABLED = false
                 CamlockToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
                 CamlockToggle.Text = "Camlock: Disabled"
@@ -2334,19 +2173,15 @@ function ParseCommand(inputStr)
                 end
             end
         else
-            -- No argument: toggle camlock on/off (existing behavior)
             FireToggle("camlock")
         end
         return
     end
 
-    -- AIMLOCK {player} command: sets name aimlock target and enables aimlock
-    -- Also: "aimlock off" or "aimlock none" clears
     if cmd == "aimlock" then
         if #parts >= 2 then
             local arg = parts[2]:lower()
             if arg == "off" or arg == "none" or arg == "clear" then
-                -- Turn everything off
                 Aiming.Enabled = false
                 Settings.Enabled = false
                 ToggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
@@ -2358,7 +2193,6 @@ function ParseCommand(inputStr)
             else
                 local target = FindPlayerByName(parts[2])
                 if target then
-                    -- Enable cursor lock + name lock on this specific player
                     Aiming.Enabled = true
                     Settings.Enabled = true
                     ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
@@ -2373,14 +2207,11 @@ function ParseCommand(inputStr)
                 end
             end
         else
-            -- No argument: toggle aimlock on/off (existing behavior)
             FireToggle("aimlock")
         end
         return
     end
 
-    -- ESP {player} command: toggle ESP on a specific player via command
-    -- "esp all" enables all, "esp off"/"esp none" disables all
     if cmd == "esp" then
         if #parts >= 2 then
             local arg = parts[2]:lower()
@@ -2401,11 +2232,7 @@ function ParseCommand(inputStr)
             else
                 local target = FindPlayerByName(parts[2])
                 if target then
-                    -- Toggle ESP for that player
-                    if ESP_All then
-                        ESP_All = false
-                        ESP_Players = {}
-                    end
+                    if ESP_All then ESP_All = false ESP_Players = {} end
                     if ESP_Players[target] then
                         ESP_Players[target] = nil
                         CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
@@ -2430,14 +2257,12 @@ function ParseCommand(inputStr)
         return
     end
 
-    -- FLY command: enable fly
     if cmd == "fly" then
         if not FLY_ENABLED then
             FLY_ENABLED = true
-            FLY_SPEED = 50 -- Force speed to 50 on command
+            FLY_SPEED = 50
             FlySpeedLabel.Text = "Fly Speed: 50"
             FlySpeedKnob.Position = UDim2.new((50 - 10) / 290, -8, 0.5, -8)
-
             FlyToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
             FlyToggle.Text = "Fly: Enabled"
             StartFly()
@@ -2451,7 +2276,6 @@ function ParseCommand(inputStr)
         return
     end
 
-    -- UNFLY command: disable fly
     if cmd == "unfly" then
         if FLY_ENABLED then
             FLY_ENABLED = false
@@ -2468,7 +2292,6 @@ function ParseCommand(inputStr)
         return
     end
 
-    -- INFSTAM command: enable infinite stamina
     if cmd == "infstam" then
         if INFSTAM_ENABLED then
             CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 180)
@@ -2485,7 +2308,6 @@ function ParseCommand(inputStr)
         return
     end
 
-    -- UNINFSTAM command: disable infinite stamina
     if cmd == "uninfstam" then
         if not INFSTAM_ENABLED then
             CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 180)
@@ -2495,17 +2317,13 @@ function ParseCommand(inputStr)
         INFSTAM_ENABLED = false
         InfStamToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
         InfStamToggle.Text = "Inf Stamina: Disabled"
-        if infStamConnection then
-            infStamConnection:Disconnect()
-            infStamConnection = nil
-        end
+        if infStamConnection then infStamConnection:Disconnect() infStamConnection = nil end
         CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
         CmdFeedback.Text = "Inf Stamina: OFF"
         Notify("Inf Stamina", "🔴 Disabled")
         return
     end
 
-    -- UNAIMLOCK command: turn off ALL aimlock and sync GUI
     if cmd == "unaimlock" then
         Aiming.Enabled = false
         Settings.Enabled = false
@@ -2519,7 +2337,6 @@ function ParseCommand(inputStr)
         return
     end
 
-    -- BIND command: bind [toggleName] [key]
     if cmd == "bind" then
         if #parts < 3 then
             CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
@@ -2542,7 +2359,6 @@ function ParseCommand(inputStr)
             return
         end
 
-        -- Save bind
         Binds[toggleName] = Enum.KeyCode[string.split(keyEnumName, ".")[2]]
         CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
         CmdFeedback.Text = "Bound " .. toggleName .. " to " .. keyStr:upper()
@@ -2550,7 +2366,6 @@ function ParseCommand(inputStr)
         return
     end
 
-    -- UNBIND command: unbind
     if cmd == "unbind" then
         if #parts < 2 then
             CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
@@ -2558,7 +2373,6 @@ function ParseCommand(inputStr)
             return
         end
         local toggleName = parts[2]:lower()
-        -- UNBIND ALL: clear every bind at once
         if toggleName == "all" then
             local count = 0
             for k in pairs(Binds) do Binds[k] = nil; count = count + 1 end
@@ -2585,7 +2399,6 @@ function ParseCommand(inputStr)
         return
     end
 
-    -- BINDS command: list all current binds
     if cmd == "binds" then
         local out = ""
         for name, key in pairs(Binds) do
@@ -2596,7 +2409,6 @@ function ParseCommand(inputStr)
         return
     end
 
-    -- GET command: teleport to a gun model in the world
     if cmd == "get" then
         if #parts < 2 then
             CmdFeedback.TextColor3 = Color3.fromRGB(255, 80, 80)
@@ -2604,16 +2416,8 @@ function ParseCommand(inputStr)
             return
         end
 
-        -- Map of item keyword → exact workspace model name
-        local ITEM_MAP = {
-            ["ammo"] = "Buy Ammo | $25",
-        }
-
-        -- Items where multiple copies exist in the world; pick the closest one.
-        local FIND_CLOSEST = {
-            ["Buy Ammo | $25"] = true,
-        }
-
+        local ITEM_MAP = { ["ammo"] = "Buy Ammo | $25" }
+        local FIND_CLOSEST = { ["Buy Ammo | $25"] = true }
         local itemKey=parts[2]:lower()
         local iDef=GET_ITEMS[itemKey]
         if iDef then
@@ -2671,7 +2475,7 @@ function ParseCommand(inputStr)
                 local startPos = hr.Position
                 local path = tp - startPos
                 local dist = path.Magnitude
-                local sSpeed = 140 -- Clamped speed to stay safely under Roblox physics verification limits
+                local sSpeed = 140 
                 local stepCount = math.max(1, math.floor(dist / (sSpeed * 0.03)))
                 for i=1,stepCount do
                     if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return end
@@ -2698,7 +2502,6 @@ function ParseCommand(inputStr)
                 end
                 task.wait(0.1)
 
-                -- Restore noclip to its previous state after arrival
                 if not _wasNoclip then
                     NOCLIP_ENABLED = false
                     NoclipToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
@@ -2716,7 +2519,6 @@ function ParseCommand(inputStr)
             return
         end
 
-        -- Search the whole workspace recursively.
         local model
         if FIND_CLOSEST[modelName] then
             local hrpNow = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -2749,7 +2551,6 @@ function ParseCommand(inputStr)
             return
         end
 
-        -- Resolve the target position from the model
         local targetPos
         if model:IsA("Model") then
             if model.PrimaryPart then
@@ -2772,7 +2573,6 @@ function ParseCommand(inputStr)
             return
         end
 
-        -- Make sure the player has a character
         local character = LocalPlayer.Character
         local hrp = character and character:FindFirstChild("HumanoidRootPart")
         if not hrp then
@@ -2781,10 +2581,7 @@ function ParseCommand(inputStr)
             return
         end
 
-        -- Bypassed teleport with auto-retry until the tool appears in inventory
         local destCFrame = CFrame.new(targetPos + Vector3.new(0, 4, 0))
-
-        -- Strip suffix to get the bare tool name used inside Backpack
         local baseName = (modelName:match("^(.-)%s*\|") or modelName):match("^%s*(.-)%s*$")
 
         local function toolInInventory()
@@ -2811,24 +2608,20 @@ function ParseCommand(inputStr)
         Notify("Get", "📦 Going to " .. modelName)
 
         task.spawn(function()
-            -- "get ammo" teleports once and stops; other items retry up to 20 times.
             local MAX_ATTEMPTS = (itemKey == "ammo") and 1 or 20
             local attempt = 0
 
             while attempt < MAX_ATTEMPTS and not toolInInventory() do
                 attempt = attempt + 1
 
-                -- TP Walk toward the LOCKED model only
                 do
-                    local STEP_SPEED = 140 -- Clamped speed to stay safely under Roblox physics verification limits
-                    local ARRIVE_DIST = 0.5 -- land directly ON the model
-                    local MAX_STEPS = 400 -- hard cap so it can't loop forever
-                    local finalPos = nil -- track where we stop so we can face it
+                    local STEP_SPEED = 140 
+                    local ARRIVE_DIST = 0.5 
+                    local MAX_STEPS = 400 
+                    local finalPos = nil 
 
                     for _ = 1, MAX_STEPS do
-                        -- Re-read the model's live world position each frame (tracks if it moves)
                         local livePos
-
                         if model:IsA("Model") then
                             livePos = model.PrimaryPart and model.PrimaryPart.Position
                             if not livePos then
@@ -2839,17 +2632,15 @@ function ParseCommand(inputStr)
                         elseif model:IsA("BasePart") then
                             livePos = model.Position
                         end
-                        if not livePos then break end -- model disappeared
+                        if not livePos then break end 
                         finalPos = livePos
-                        -- No y-offset: walk straight onto the model's position
                         local diff = livePos - hrp.Position
                         if diff.Magnitude <= ARRIVE_DIST then break end
 
                         hrp.CFrame = hrp.CFrame + diff.Unit * math.min(STEP_SPEED * 0.016, diff.Magnitude)
-                        task.wait() -- one frame, same as Heartbeat in TP Walk
+                        task.wait() 
                     end
 
-                    -- Snap HRP to face the model
                     if finalPos then
                         local lookDir = (finalPos - hrp.Position)
                         if lookDir.Magnitude > 0.01 then
@@ -2859,7 +2650,6 @@ function ParseCommand(inputStr)
                 end
                 task.wait(0.05)
 
-                -- Fire the ProximityPrompt on the LOCKED model only
                 local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
                 if prompt then
                     pcall(function()
@@ -2887,7 +2677,6 @@ function ParseCommand(inputStr)
         return
     end
 
-    -- ITEM ESP command: itemesp
     if cmd == "itemesp" then
         if ITEM_ESP_ACTIVE then
             CmdFeedback.TextColor3 = Color3.fromRGB(255, 150, 0)
@@ -2899,21 +2688,18 @@ function ParseCommand(inputStr)
         CmdFeedback.Text = "Item ESP Enabled"
 
         Notify("ESP", "Scannable Item ESP: Active")
-        -- Spawn scannable items search routine
         task.spawn(function()
             local function nId(s) return tostring(s):lower():gsub("%s+","") end
             while ITEM_ESP_ACTIVE do
-                -- Clean up old billboards from last scan
                 for _, obj in ipairs(ITEM_ESP_OBJECTS) do
                     pcall(function() obj:Destroy() end)
                 end
                 ITEM_ESP_OBJECTS = {}
 
-                local seen = {} -- deduplicate: one billboard per root model/part
+                local seen = {} 
                 for itemKey, iDef in pairs(GET_ITEMS) do
                     if not ITEM_ESP_ACTIVE then break end
 
-                    -- Exact same match function used by the get command
                     local function mI(o)
                         local c = o.ClassName
                         local m = iDef.mesh and nId(iDef.mesh)
@@ -2925,7 +2711,6 @@ function ParseCommand(inputStr)
                         elseif c == "Texture" or c == "Decal" then
                             return t and nId(o.Texture) == t
                         end
-                        -- Name-based fallback
                         if iDef.names and (o:IsA("Model") or o:IsA("BasePart") or o:IsA("Tool")) then
                             for _, n in ipairs(iDef.names) do
                                 if o.Name == n then return true end
@@ -2939,7 +2724,6 @@ function ParseCommand(inputStr)
                         if not ITEM_ESP_ACTIVE then break end
                         local ok, hit = pcall(mI, o)
                         if ok and hit then
-                            -- Walk up to nearest Model ancestor (same as get command)
                             local a = o.Parent
                             while a and a ~= workspace do
                                 if a:IsA("Model") then break end
@@ -2951,7 +2735,6 @@ function ParseCommand(inputStr)
 
                             if tg and not seen[tg] then
                                 seen[tg] = true
-                                -- Resolve adorn part
                                 local adornPart
                                 if tg:IsA("Model") then
                                     adornPart = tg.PrimaryPart
@@ -2992,13 +2775,12 @@ function ParseCommand(inputStr)
                         end
                     end
                 end
-                task.wait(4.0) -- refresh interval
+                task.wait(4.0) 
             end
         end)
         return
     end
 
-    -- UNITEMESP command: disable item esp
     if cmd == "unitemesp" then
         if not ITEM_ESP_ACTIVE then
             CmdFeedback.TextColor3 = Color3.fromRGB(160, 160, 160)
@@ -3017,22 +2799,6 @@ function ParseCommand(inputStr)
         return
     end
 
-    -- SAVEINVENTORY command: toggle saving tools on death
-    if cmd == "saveinventory" then
-        SAVEINVENTORY_ENABLED = not SAVEINVENTORY_ENABLED
-        if SAVEINVENTORY_ENABLED then
-            CmdFeedback.TextColor3 = Color3.fromRGB(0, 220, 80)
-            CmdFeedback.Text = "Save Inventory: ON"
-            Notify("Save Inventory", "🟢 Tools will be saved on death")
-        else
-            CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
-            CmdFeedback.Text = "Save Inventory: OFF"
-            Notify("Save Inventory", "🔴 Turned OFF")
-        end
-        return
-    end
-
-    -- LASTPOS command: teleport back to death position on respawn
     if cmd == "lastpos" then
         LASTPOS_ENABLED = true
         CmdFeedback.TextColor3 = Color3.fromRGB(0, 220, 80)
@@ -3041,7 +2807,6 @@ function ParseCommand(inputStr)
         return
     end
 
-    -- UNLASTPOS command: disable last pos teleport
     if cmd == "unlastpos" then
         LASTPOS_ENABLED = false
         CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
@@ -3050,7 +2815,6 @@ function ParseCommand(inputStr)
         return
     end
 
-    -- NOSLOW command: remove slow/action tags every frame (detosware method)
     if cmd == "noslow" then
         if NOSLOW_ENABLED then
             CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 180)
@@ -3058,8 +2822,7 @@ function ParseCommand(inputStr)
             return
         end
         NOSLOW_ENABLED = true
-        HookTagSystem() -- attempt TagSystem hook (The Streets)
-        -- Clear any slow tags already present right now
+        HookTagSystem() 
         local char = LocalPlayer.Character
         if char then
             for _, child in pairs(char:GetChildren()) do
@@ -3074,7 +2837,6 @@ function ParseCommand(inputStr)
         return
     end
 
-    -- UNNOSLOW command: stop noslow
     if cmd == "unnoslow" then
         if not NOSLOW_ENABLED then
             CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 180)
@@ -3093,7 +2855,6 @@ function ParseCommand(inputStr)
     CmdFeedback.Text = "Unknown command: " .. cmd .. " (try: cmd)"
 end
 
--- CmdBarBox FocusLost: submit on enter, slide out, run command async (no crash)
 CmdBarBox.FocusLost:Connect(function(enterPressed)
     if enterPressed then
         CmdFeedback = MainCmdFeedback
@@ -3102,10 +2863,8 @@ CmdBarBox.FocusLost:Connect(function(enterPressed)
         SlideCmdBarOut()
         task.spawn(ParseCommand, txt)
     else
-        -- Lost focus without enter: slide out after short delay
-
         cmdBarCloseThread = task.delay(0.4, function()
-            cmdBarCloseThread = nil -- FIX: sever the tie
+            cmdBarCloseThread = nil 
             if not CmdBarBox:IsFocused() then
                 SlideCmdBarOut()
             end
@@ -3113,11 +2872,9 @@ CmdBarBox.FocusLost:Connect(function(enterPressed)
     end
 end)
 
--- K key: show/hide main GUI panel; also fire bound hotkeys
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
 
-    -- Fire any bound feature keys
     for toggleName, boundKey in pairs(Binds) do
         if input.KeyCode == boundKey then
             FireToggle(toggleName)
@@ -3131,7 +2888,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
--- Semicolon/Colon key: toggle the sliding command bar strip open/closed
 local function handleCmdOpen(actionName, inputState, inputObject)
     if inputState ~= Enum.UserInputState.Begin then
         return Enum.ContextActionResult.Pass
@@ -3139,17 +2895,14 @@ local function handleCmdOpen(actionName, inputState, inputObject)
 
     local focusedTextBox = UserInputService:GetFocusedTextBox()
 
-    -- Already typing in the command bar box: let it type normally
     if focusedTextBox == CmdBarBox then
         return Enum.ContextActionResult.Pass
     end
 
-    -- Also pass through if typing in side bar
     if focusedTextBox == SideCmdBox then
         return Enum.ContextActionResult.Pass
     end
 
-    -- Toggle: if open slide out, if closed slide in
     if isCmdBarOpen then
         SlideCmdBarOut()
     else
@@ -3160,7 +2913,6 @@ end
 
 ContextActionService:BindAction("ColonBind", handleCmdOpen, false, Enum.KeyCode.Semicolon)
 
--- Clear feedback after 4 seconds automatically for both main and side feedback labels
 local lastFeedbackTime = 0
 local lastSideFeedbackTime = 0
 task.spawn(function()
@@ -3173,7 +2925,6 @@ task.spawn(function()
                 lastFeedbackTime = 0
             end
         else
-
             lastFeedbackTime = 0
         end
 
@@ -3189,18 +2940,12 @@ task.spawn(function()
     end
 end)
 
--- Rainbow (RGB) effect for Slaxware text
 task.spawn(function()
     while true do
-        local hue = (tick() % 5) / 5 -- Cycle hue every 5 seconds
+        local hue = (tick() % 5) / 5 
         local color = Color3.fromHSV(hue, 1, 1)
-        if Title then
-            Title.TextColor3 = color
-        end
-        if SideTitle then
-
-            SideTitle.TextColor3 = color
-        end
+        if Title then Title.TextColor3 = color end
+        if SideTitle then SideTitle.TextColor3 = color end
         task.wait()
     end
 end)
@@ -3271,9 +3016,6 @@ local function CreateNametag(player)
     player.CharacterAdded:Connect(Setup)
 end
 
--- // ===== HEALTHBAR REMOVED =====
--- All functions and calls related to health bars have been deleted.
-
 local function UpdateESP()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
@@ -3304,114 +3046,6 @@ end
 Players.PlayerAdded:Connect(function(plr)
     if plr ~= LocalPlayer then
         CreateNametag(plr)
-    end
-end)
-
--- // ─────────────────────────────────────────────────────────
--- // ─────────────────────────────────────────────────────────
--- // RAINBOW HATS LOOP
--- // Cycles through the phone's exact color swatches by firing
--- // each swatch's click handler directly (server-side, all see it).
--- // ─────────────────────────────────────────────────────────
-local RAINBOW_COLORS = {
-    Color3.fromRGB(26,141,141), Color3.fromRGB(140,172,230),
-    Color3.fromRGB(230,0,3), Color3.fromRGB(141,81,57),
-    Color3.fromRGB(102,109,229), Color3.fromRGB(229,170,66),
-    Color3.fromRGB(190,75,77), Color3.fromRGB(69,158,190),
-    Color3.fromRGB(62,190,23), Color3.fromRGB(193,193,193),
-    Color3.fromRGB(255,255,255), Color3.fromRGB(240,240,240),
-    Color3.fromRGB(255,255,116), Color3.fromRGB(148,230,142),
-    Color3.fromRGB(136,223,230), Color3.fromRGB(64,255,240),
-    Color3.fromRGB(188,167,230), Color3.fromRGB(230,162,230),
-    Color3.fromRGB(141,0,2), Color3.fromRGB(39,39,39),
-    Color3.fromRGB(230,96,0), Color3.fromRGB(230,192,0),
-    Color3.fromRGB(11,230,0), Color3.fromRGB(0,200,230),
-    Color3.fromRGB(0,3,230), Color3.fromRGB(123,0,230),
-    Color3.fromRGB(230,0,227),
-}
-local _rhIdx = 1
-
--- Fire every signal connection on a swatch (works even without firebutton)
-local function _fireSwatch(swatch)
-    -- Method 1: firebutton (executor API, works on GuiButton)
-    pcall(firebutton, swatch)
-    -- Method 2: call handlers via getconnections (fires the game's own click logic)
-    for _, sigName in ipairs({"MouseButton1Click","Activated","InputBegan","MouseButton1Down"}) do
-        pcall(function()
-            local conns = getconnections(swatch[sigName])
-            for _, c in ipairs(conns or {}) do
-
-                pcall(function() c:Fire() end) -- Synapse-style
-                pcall(function() c.Function() end) -- alternative
-            end
-        end)
-    end
-    -- Method 3: VirtualInputManager click at swatch centre (last resort)
-    pcall(function()
-        local pos = swatch.AbsolutePosition
-        local sz = swatch.AbsoluteSize
-        if sz.X > 0 and sz.Y > 0 then
-            local cx = pos.X + sz.X/2
-            local cy = pos.Y + sz.Y/2
-            local vim = game:GetService("VirtualInputManager")
-            vim:SendMouseButtonEvent(cx, cy, 0, true, game, 0)
-            task.wait(0.03)
-            vim:SendMouseButtonEvent(cx, cy, 0, false, game, 0)
-        end
-    end)
-end
-
-task.spawn(function()
-    while true do
-        task.wait(0.15)
-
-        if RAINBOWHATS_ENABLED then
-            pcall(function()
-                local pg = game:GetService("Players").LocalPlayer.PlayerGui
-                local phoneGUI = pg:FindFirstChild("phoneGUI")
-                if not phoneGUI then return end
-
-                -- Enable every layer of the hierarchy so AbsolutePosition/Size are valid
-                local function setChainEnabled(obj, state)
-                    local cur = obj
-                    while cur and cur ~= game do
-                        if cur:IsA("ScreenGui") then cur.Enabled = state
-                        elseif cur:IsA("GuiObject") then cur.Visible = state end
-                        cur = cur.Parent
-
-                    end
-                end
-
-                local savedEnabled = phoneGUI.Enabled
-                phoneGUI.Enabled = true
-
-                local ok, cs = pcall(function()
-                    return phoneGUI.Frame.Background.Wallpaper.GroupFrame.Group.cs
-                end)
-                if not ok or not cs then phoneGUI.Enabled = savedEnabled; return end
-
-                -- Collect all Color swatches
-                local swatches = {}
-                for _, c in ipairs(cs:GetChildren()) do
-                    if c.Name == "Color" then
-                        table.insert(swatches, c)
-                    end
-                end
-                -- Sort by LayoutOrder for visual-order cycling
-                table.sort(swatches, function(a,b)
-                    return (a.LayoutOrder or 0) < (b.LayoutOrder or 0)
-                end)
-
-                local n = #swatches
-                if n > 0 then
-
-                    _fireSwatch(swatches[((_rhIdx-1) % n) + 1])
-                    _rhIdx = _rhIdx + 1
-                end
-
-                phoneGUI.Enabled = savedEnabled
-            end)
-        end
     end
 end)
 

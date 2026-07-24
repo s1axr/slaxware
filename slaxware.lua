@@ -164,14 +164,6 @@ OldNewIndex = hookmetamethod(game, "__newindex", newcclosure(function(self, inde
             if index == "CFrame" or index == "Velocity" or index == "AssemblyLinearVelocity" then
                 return
             end
-        -- // FIX: Do NOT block WalkSpeed/JumpPower/HipHeight
-        -- // The game needs to update these for stamina/sprint to work.
-        -- // The anti-cheat reporting is already blocked in __namecall.
-        -- elseif name == "Humanoid" then
-        --     if index == "WalkSpeed" or index == "JumpPower" or index == "HipHeight" then
-        --         return
-        --     end
-        -- end
         end
     end
     return OldNewIndex(self, index, val)
@@ -227,8 +219,8 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = game:GetService("CoreGui")
 
 local Frame = Instance.new("Frame")
-Frame.Size = UDim2.new(0, 280, 0, 752)
-Frame.Position = UDim2.new(0.5, -140, 0.5, -376)
+Frame.Size = UDim2.new(0, 280, 0, 792)
+Frame.Position = UDim2.new(0.5, -140, 0.5, -396)
 Frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 Frame.BorderSizePixel = 0
 Frame.Active = true
@@ -896,11 +888,13 @@ FlySpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
 FlySpeedLabel.Parent = Frame
 
 local FlySpeedSlider = Instance.new("Frame")
-FlySpeedSlider.Size = UDim2.new(0.9, 0, 0, 6)
+FlySpeedSlider.Size = UDim2.new(0.9, 0, 0, 583)
 FlySpeedSlider.Position = UDim2.new(0.05, 0, 0, 583)
 FlySpeedSlider.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 FlySpeedSlider.BorderSizePixel = 0
 FlySpeedSlider.Parent = Frame
+-- Fix size overlay issue
+FlySpeedSlider.Size = UDim2.new(0.9, 0, 0, 6) 
 
 local FlySpeedKnob = Instance.new("Frame")
 FlySpeedKnob.Size = UDim2.new(0, 16, 0, 16)
@@ -1082,6 +1076,54 @@ RunService.Stepped:Connect(function()
     end
 end)
 
+-- // INFINITE STAMINA CONTROL
+local InfStamToggle = Instance.new("TextButton")
+InfStamToggle.Size = UDim2.new(0.9, 0, 0, 40)
+InfStamToggle.Position = UDim2.new(0.05, 0, 0, 655)
+InfStamToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+InfStamToggle.BorderSizePixel = 0
+InfStamToggle.Text = "Inf Stamina: Disabled"
+InfStamToggle.TextColor3 = Color3.new(1, 1, 1)
+InfStamToggle.TextSize = 14
+InfStamToggle.Font = Enum.Font.GothamSemibold
+InfStamToggle.Parent = Frame
+
+getgenv().INFSTAM_ENABLED = false
+local infStamConnection = nil
+
+local function ApplyInfStam(character)
+    if not character then return end
+    local stamina = character:WaitForChild("Stamina", 5)
+    local maxStamina = character:WaitForChild("MaxStamina", 5)
+    if stamina and maxStamina then
+        if infStamConnection then infStamConnection:Disconnect() end
+        infStamConnection = stamina:GetPropertyChangedSignal("Value"):Connect(function()
+            if INFSTAM_ENABLED and stamina.Value < maxStamina.Value then
+                stamina.Value = maxStamina.Value
+            end
+        end)
+        if INFSTAM_ENABLED then
+            stamina.Value = maxStamina.Value
+        end
+    end
+end
+
+InfStamToggle.MouseButton1Click:Connect(function()
+    INFSTAM_ENABLED = not INFSTAM_ENABLED
+    if INFSTAM_ENABLED then
+        InfStamToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+        InfStamToggle.Text = "Inf Stamina: Enabled"
+        ApplyInfStam(LocalPlayer.Character)
+    else
+        InfStamToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+        InfStamToggle.Text = "Inf Stamina: Disabled"
+        if infStamConnection then
+            infStamConnection:Disconnect()
+            infStamConnection = nil
+        end
+    end
+end)
+
 -- // SAVEINVENTORY + LASTPOS + NOSLOW — standalone approach
 -- Hooks into every character spawn so commands work regardless of when they're enabled
 
@@ -1160,6 +1202,11 @@ local function SlaxHookCharacter(character)
     end
 
     if not humanoid then return end
+    
+    -- INFINITE STAMINA: Hook up if enabled
+    if INFSTAM_ENABLED then
+        task.spawn(ApplyInfStam, character)
+    end
 
     -- Clean up fly connections/state on character death
     humanoid.Died:Connect(function()
@@ -1285,7 +1332,7 @@ print("✅ Strong Auto Reset on ≤10 HP Loaded")
 -- // NAME AIMLOCK GUI
 local NameAimlockLabel = Instance.new("TextLabel")
 NameAimlockLabel.Size = UDim2.new(0.9, 0, 0, 20)
-NameAimlockLabel.Position = UDim2.new(0.05, 0, 0, 665)
+NameAimlockLabel.Position = UDim2.new(0.05, 0, 0, 705)
 NameAimlockLabel.BackgroundTransparency = 1
 NameAimlockLabel.Text = "Name Aimlock: none"
 NameAimlockLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
@@ -1297,7 +1344,7 @@ NameAimlockLabel.Parent = Frame
 -- // AIMLOCK DROPDOWN
 local AimlockDropBtn = Instance.new("TextBox")
 AimlockDropBtn.Size = UDim2.new(0.9, 0, 0, 32)
-AimlockDropBtn.Position = UDim2.new(0.05, 0, 0, 688)
+AimlockDropBtn.Position = UDim2.new(0.05, 0, 0, 728)
 AimlockDropBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 AimlockDropBtn.BorderSizePixel = 0
 AimlockDropBtn.Text = "▼ Select Player..."
@@ -1318,7 +1365,7 @@ AimlockDropBtn.Parent = Frame
 
 local AimlockDropFrame = Instance.new("ScrollingFrame")
 AimlockDropFrame.Size = UDim2.new(0.9, 0, 0, 0)
-AimlockDropFrame.Position = UDim2.new(0.05, 0, 0, 721)
+AimlockDropFrame.Position = UDim2.new(0.05, 0, 0, 761)
 AimlockDropFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 AimlockDropFrame.BorderSizePixel = 0
 AimlockDropFrame.ClipsDescendants = true
@@ -1334,7 +1381,7 @@ AimlockDropLayout.Parent = AimlockDropFrame
 
 local NameAimlockStatus = Instance.new("TextLabel")
 NameAimlockStatus.Size = UDim2.new(0.9, 0, 0, 18)
-NameAimlockStatus.Position = UDim2.new(0.05, 0, 0, 724)
+NameAimlockStatus.Position = UDim2.new(0.05, 0, 0, 764)
 NameAimlockStatus.BackgroundTransparency = 1
 NameAimlockStatus.Text = "Status: inactive"
 NameAimlockStatus.TextColor3 = Color3.fromRGB(170, 0, 0)
@@ -1848,6 +1895,17 @@ local function FireToggle(name)
         NoclipToggle.BackgroundColor3 = NOCLIP_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
         NoclipToggle.Text = "Noclip: " .. (NOCLIP_ENABLED and "Enabled" or "Disabled")
         Notify("Noclip", NOCLIP_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
+    elseif name == "infstam" then
+        INFSTAM_ENABLED = not INFSTAM_ENABLED
+        InfStamToggle.BackgroundColor3 = INFSTAM_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+        InfStamToggle.Text = "Inf Stamina: " .. (INFSTAM_ENABLED and "Enabled" or "Disabled")
+        if INFSTAM_ENABLED then 
+            ApplyInfStam(LocalPlayer.Character)
+        elseif infStamConnection then 
+            infStamConnection:Disconnect() 
+            infStamConnection = nil 
+        end
+        Notify("Inf Stamina", INFSTAM_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
     elseif name == "camlock" then
         CAMLOCK_ENABLED = not CAMLOCK_ENABLED
         CamlockToggle.BackgroundColor3 = CAMLOCK_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
@@ -1916,6 +1974,7 @@ local VALID_TOGGLES = {
     ["autoreset"] = true,
     ["fly"] = true,
     ["noclip"] = true,
+    ["infstam"] = true,
     ["camlock"] = true,
     ["tpwalk"] = true,
     ["fovvisible"] = true,
@@ -1956,6 +2015,8 @@ local CMD_LIST = {
     { cmd = "unfly", desc = "Disable fly mode" },
     { cmd = "unaimlock", desc = "Turn off ALL aimlock and sync GUI" },
     { cmd = "noclip", desc = "No-clip through walls" },
+    { cmd = "infstam", desc = "Enable infinite stamina" },
+    { cmd = "uninfstam", desc = "Disable infinite stamina" },
     { cmd = "rainbowhats", desc = "Rainbow-cycle all hat colors in phone GUI (toggle)" },
     { cmd = "rejoin", desc = "Rejoin the current server" },
     { cmd = "camlock {player}", desc = "Camlock onto player by name (or 'off' to clear)" },
@@ -2404,6 +2465,43 @@ function ParseCommand(inputStr)
             CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 180)
             CmdFeedback.Text = "Fly is already off"
         end
+        return
+    end
+
+    -- INFSTAM command: enable infinite stamina
+    if cmd == "infstam" then
+        if INFSTAM_ENABLED then
+            CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 180)
+            CmdFeedback.Text = "Inf Stamina is already ON"
+            return
+        end
+        INFSTAM_ENABLED = true
+        InfStamToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+        InfStamToggle.Text = "Inf Stamina: Enabled"
+        ApplyInfStam(LocalPlayer.Character)
+        CmdFeedback.TextColor3 = Color3.fromRGB(0, 220, 80)
+        CmdFeedback.Text = "Inf Stamina: ON"
+        Notify("Inf Stamina", "🟢 Enabled")
+        return
+    end
+
+    -- UNINFSTAM command: disable infinite stamina
+    if cmd == "uninfstam" then
+        if not INFSTAM_ENABLED then
+            CmdFeedback.TextColor3 = Color3.fromRGB(180, 180, 180)
+            CmdFeedback.Text = "Inf Stamina is already OFF"
+            return
+        end
+        INFSTAM_ENABLED = false
+        InfStamToggle.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+        InfStamToggle.Text = "Inf Stamina: Disabled"
+        if infStamConnection then
+            infStamConnection:Disconnect()
+            infStamConnection = nil
+        end
+        CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
+        CmdFeedback.Text = "Inf Stamina: OFF"
+        Notify("Inf Stamina", "🔴 Disabled")
         return
     end
 

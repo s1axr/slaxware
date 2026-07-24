@@ -6,7 +6,7 @@
 (____/\____/\_/\_/(_/\_)(_/\_)\_/\_/(__\_)(____)
 
 -- made by grok ai btw lol cry idgaf
--- Features: auto-reset at 10hp (toggle), aimlock, esp, camlock, custom bullets
+-- Features: auto-reset at 10hp (toggle), aimlock, esp, camlock, custom bullets, config save
 -- The Streets
 
 ]]
@@ -22,12 +22,13 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local ContextActionService = game:GetService("ContextActionService")
+local HttpService = game:GetService("HttpService")
 
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
 -- -----------------------------------------------------
--- // SILENT AIM & AIMLOCK SETTINGS
+-- // GLOBAL VARIABLES & CONFIG SETTINGS
 -- -----------------------------------------------------
 
 getgenv().Settings = {
@@ -45,8 +46,77 @@ getgenv().Settings = {
 }
 
 getgenv().Aiming = getgenv().Settings
+getgenv().FLY_SPEED = 50
+getgenv().TPWALK_SPEED = 15
 
 local Camera = workspace.CurrentCamera
+local Binds = {}
+
+local BULLET_TRAILS_ENABLED = false
+local APPLY_TO_EVERYONE = false
+local BulletColour = ColorSequence.new(Color3.fromRGB(255, 255, 255))
+local TrailTime = 0.2
+local BulletTransparency = 0.0
+
+local CONFIG_FILE = "slaxware_config.json"
+
+local function SaveConfig()
+    if not writefile then return end
+    
+    local config = {
+        Binds = {},
+        FlySpeed = FLY_SPEED,
+        TPWalkSpeed = TPWALK_SPEED,
+        FOVSize = Settings.FOV,
+        TrailTime = TrailTime,
+        BulletTransparency = BulletTransparency,
+        BulletR = BulletColour.Keypoints[1].Value.R,
+        BulletG = BulletColour.Keypoints[1].Value.G,
+        BulletB = BulletColour.Keypoints[1].Value.B
+    }
+    
+    for toggleName, keyEnum in pairs(Binds) do
+        config.Binds[toggleName] = keyEnum.Name
+    end
+    
+    pcall(function()
+        writefile(CONFIG_FILE, HttpService:JSONEncode(config))
+    end)
+end
+
+local function LoadConfig()
+    if not (isfile and readfile) then return end
+    pcall(function()
+        if isfile(CONFIG_FILE) then
+            local data = HttpService:JSONDecode(readfile(CONFIG_FILE))
+            if type(data) ~= "table" then return end
+            
+            if data.Binds then
+                for toggleName, keyName in pairs(data.Binds) do
+                    pcall(function() Binds[toggleName] = Enum.KeyCode[keyName] end)
+                end
+            end
+            
+            if data.FlySpeed then FLY_SPEED = tonumber(data.FlySpeed) or FLY_SPEED end
+            if data.TPWalkSpeed then TPWALK_SPEED = tonumber(data.TPWalkSpeed) or TPWALK_SPEED end
+            if data.FOVSize then Settings.FOV = tonumber(data.FOVSize) or Settings.FOV end
+            if data.TrailTime then TrailTime = tonumber(data.TrailTime) or TrailTime end
+            if data.BulletTransparency then BulletTransparency = tonumber(data.BulletTransparency) or BulletTransparency end
+            
+            if data.BulletR and data.BulletG and data.BulletB then
+                BulletColour = ColorSequence.new(Color3.new(data.BulletR, data.BulletG, data.BulletB))
+            end
+        end
+    end)
+end
+
+-- Load everything up immediately
+LoadConfig()
+
+
+-- -----------------------------------------------------
+-- // SILENT AIM & AIMLOCK SETTINGS
+-- -----------------------------------------------------
 
 -- Global targets
 local NAME_AIMLOCK_TARGET = nil
@@ -198,12 +268,6 @@ end))
 -- -----------------------------------------------------
 -- // BULLET TRAILS ENGINE
 -- -----------------------------------------------------
-
-local BULLET_TRAILS_ENABLED = false
-local APPLY_TO_EVERYONE = false
-local BulletColour = ColorSequence.new(Color3.fromRGB(255, 255, 255))
-local TrailTime = 0.2
-local BulletTransparency = 0.0
 
 local OwnTrails = setmetatable({}, {__mode = "k"})
 
@@ -718,6 +782,7 @@ end)
 
 local updateFOV = CreateSlider(Content, NextOrder(), "FOV Size", 10, 800, Settings.FOV, function(val)
     Settings.FOV = val
+    SaveConfig()
 end)
 
 local AimlockDropBtn = CreateTextBox(Content, NextOrder(), "▼ Aimlock Target", "🔍 Search aimlock...")
@@ -754,9 +819,9 @@ FlyToggle.MouseButton1Click:Connect(function()
     if FLY_ENABLED then StartFly() else StopFly() end
 end)
 
-getgenv().FLY_SPEED = 50
 local updateFlySpeed = CreateSlider(Content, NextOrder(), "Fly Speed", 10, 300, FLY_SPEED, function(val)
     FLY_SPEED = val
+    SaveConfig()
 end)
 
 local NoclipToggle = CreateButton(Content, NextOrder(), "Noclip: OFF")
@@ -771,9 +836,9 @@ TPWalkToggle.MouseButton1Click:Connect(function()
     SetBtnState(TPWalkToggle, TPWALK_ENABLED, "TPWalk: ON", "TPWalk: OFF")
 end)
 
-getgenv().TPWALK_SPEED = 15
 local updateTPWalkSpeed = CreateSlider(Content, NextOrder(), "Walk Speed", 5, 150, TPWALK_SPEED, function(val)
     TPWALK_SPEED = val
+    SaveConfig()
 end)
 
 local AUTO_RESET_ENABLED = false
@@ -799,7 +864,8 @@ end)
 
 -- Keylock Select Button
 local isBindingKeylock = false
-local KeylockBtn = CreateButton(Content, NextOrder(), "Keylock Bind: None")
+local initialKeylockText = Binds["keylock"] and ("Keylock Bind: " .. Binds["keylock"].Name) or "Keylock Bind: None"
+local KeylockBtn = CreateButton(Content, NextOrder(), initialKeylockText)
 KeylockBtn.MouseButton1Click:Connect(function()
     isBindingKeylock = true
     KeylockBtn.Text = "Keylock Bind: [ Press Any Key ]"
@@ -857,7 +923,7 @@ BUIGrid.Parent = BGridFrame
 
 local BSelectedColorPreview = Instance.new("Frame")
 BSelectedColorPreview.Size = UDim2.new(1, -20, 0, 16)
-BSelectedColorPreview.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+BSelectedColorPreview.BackgroundColor3 = BulletColour.Keypoints[1].Value
 BSelectedColorPreview.LayoutOrder = BNextOrder()
 BSelectedColorPreview.Parent = BContent
 Instance.new("UICorner", BSelectedColorPreview).CornerRadius = UDim.new(0,4)
@@ -879,6 +945,7 @@ for name, colorSeq in pairs(BulletColourTable) do
         BulletColour = colorSeq
         BSelectedColorPreview.BackgroundColor3 = colorSeq.Keypoints[1].Value
         if BULLET_TRAILS_ENABLED then UpdateActiveBullets() end
+        SaveConfig()
     end)
     btn.Parent = BGridFrame
 end
@@ -923,19 +990,22 @@ BApplyRGB.MouseButton1Click:Connect(function()
     b = math.clamp(b or 255, 0, 255)
     
     local newColor = Color3.fromRGB(r, g, b)
-    BulletColour = CNew(newColor)
+    BulletColour = ColorSequence.new(newColor)
     BSelectedColorPreview.BackgroundColor3 = newColor
     if BULLET_TRAILS_ENABLED then UpdateActiveBullets() end
+    SaveConfig()
 end)
 
 local updateBLife = CreateDecimalSlider(BContent, BNextOrder(), "Lifetime (s)", 0.05, 3.0, TrailTime, 2, function(val)
     TrailTime = val
     if BULLET_TRAILS_ENABLED then UpdateActiveBullets() end
+    SaveConfig()
 end)
 
 local updateBTransp = CreateDecimalSlider(BContent, BNextOrder(), "Opacity (0=Solid, 1=Invis)", 0.0, 1.0, BulletTransparency, 2, function(val)
     BulletTransparency = val
     if BULLET_TRAILS_ENABLED then UpdateActiveBullets() end
+    SaveConfig()
 end)
 
 -- // DROPDOWN LOGIC
@@ -2130,7 +2200,6 @@ end
 -- // COMMAND INTERPRETER ENGINE
 -- -----------------------------------------------------
 
-local Binds = {}
 local _lastNameAimlockTarget = nil
 local GET_ITEMS={
     ["money"] ={label="💰 Money",   mesh="rbxassetid://511726060",  texture="rbxassetid://511726139", names={"Money","Cash","Dollar","cash","money"}},
@@ -2541,6 +2610,8 @@ function ParseCommand(inputStr)
         end
 
         Binds[toggleName] = Enum.KeyCode[string.split(keyEnumName, ".")[2]]
+        SaveConfig() -- Automatic Save
+        
         CmdFeedback.TextColor3 = Color3.fromRGB(0, 200, 80)
         CmdFeedback.Text = "Bound " .. toggleName .. " to " .. keyStr:upper()
         Notify("Bind Set", "🔑 " .. toggleName .. " → " .. keyStr:upper())
@@ -2559,6 +2630,8 @@ function ParseCommand(inputStr)
         if parts[2]:lower() == "all" then
             local count = 0
             for k in pairs(Binds) do Binds[k] = nil; count = count + 1 end
+            SaveConfig() -- Automatic Save
+            
             CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
             CmdFeedback.Text = "Unbound all (" .. count .. ") binds"
             Notify("Unbind All", "🔴 Cleared " .. count .. " bind(s)")
@@ -2573,6 +2646,8 @@ function ParseCommand(inputStr)
         local toggleName = parts[3]:lower()
         if Binds[toggleName] then
             Binds[toggleName] = nil
+            SaveConfig() -- Automatic Save
+            
             CmdFeedback.TextColor3 = Color3.fromRGB(255, 180, 0)
             CmdFeedback.Text = "Unbound " .. toggleName
             Notify("Unbound", "🔴 " .. toggleName .. " removed")
@@ -2978,6 +3053,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         local keyStr = keyEnum.Name
         if keyStr ~= "Unknown" and keyStr ~= "Escape" then
             Binds["keylock"] = keyEnum
+            SaveConfig() -- Save the UI keybind
             KeylockBtn.Text = "Keylock Bind: " .. keyStr:upper()
             Notify("Keylock", "Bound to " .. keyStr:upper())
         else

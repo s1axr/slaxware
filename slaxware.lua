@@ -291,7 +291,7 @@ function Utils.CreateTextBox(parent, layoutOrder, text, placeholder)
     return box
 end
 
--- // PATCHED: Create floating dropdown frame that does NOT push the GUI layout down
+-- Floating dropdown frame that does NOT push the GUI layout down
 function Utils.CreateDropFrame(referenceBox)
     local drop = Instance.new("ScrollingFrame", UI.ScreenGui)
     drop.BackgroundColor3 = Color3.fromRGB(30,30,30); drop.BorderSizePixel = 0
@@ -483,7 +483,7 @@ function Utils.UpdateESPBtnLabel()
     end
 end
 
--- // PATCHED: Aimlock Target syncs with Keylock toggle seamlessly
+-- Aimlock Target syncs with Keylock toggle seamlessly
 local function Notify(title, text)
     pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", { Title = title, Text = text, Duration = 3 }) end)
 end
@@ -527,7 +527,7 @@ end
 do
     local cO = 0; local function co() cO = cO + 1 return cO end
     
-    -- PATCHED: CursorLock Toggle Disables KeyLock/Aimlock when turned on
+    -- CursorLock Toggle Disables KeyLock/Aimlock when turned on
     UI.ToggleBtn = Utils.CreateButton(UI.Content, co(), "CursorLock: OFF")
     UI.ToggleBtn.MouseButton1Click:Connect(function() 
         Settings.Enabled = not Settings.Enabled
@@ -579,7 +579,7 @@ do
     CustomTrailsBtn.MouseButton1Click:Connect(function() TweenService:Create(UI.BulletFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, -250, 0, 0)}):Play() end)
 end
 
--- // PATCHED: Dropdown Population System
+-- Dropdown Population System
 do
     local function populateDrop(frame, refBox, filterTxt, getEntries, clickCallback)
         for _, c in pairs(frame:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
@@ -958,24 +958,27 @@ end
 
 local function FireToggle(name)
     if name == "keylock" then
-        if KEYLOCK_ACTIVE then
-            Utils.SetAimlockTarget(nil)
-            Notify("KeyLock", "🔴 Turned OFF")
-        else
-            local t, sDist, mLoc = nil, math.huge, UserInputService:GetMouseLocation()
-            for _, p in pairs(Players:GetPlayers()) do
-                if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild(Settings.Hitpart) and p.Character:FindFirstChildOfClass("Humanoid") and p.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
-                    local sPos, on = Camera:WorldToViewportPoint(p.Character[Settings.Hitpart].Position)
-                    if on then
-                        local d = (Vector2.new(sPos.X, sPos.Y) - mLoc).Magnitude
-                        if d < sDist then sDist = d; t = p end
-                    end
+        -- MODIFIED: Search for a target within the FOV circle. 
+        -- If found, lock onto them. If NOT found, turn Keylock OFF.
+        local t, sDist, mLoc = nil, Settings.FOV, UserInputService:GetMouseLocation()
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild(Settings.Hitpart) and p.Character:FindFirstChildOfClass("Humanoid") and p.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
+                local sPos, on = Camera:WorldToViewportPoint(p.Character[Settings.Hitpart].Position)
+                if on then
+                    local d = (Vector2.new(sPos.X, sPos.Y) - mLoc).Magnitude
+                    if d < sDist then sDist = d; t = p end
                 end
             end
-            if t then 
-                Utils.SetAimlockTarget(t)
-                Notify("KeyLock", "🎯 Locked → " .. t.Name) 
-            else 
+        end
+        
+        if t then 
+            Utils.SetAimlockTarget(t)
+            Notify("KeyLock", "🎯 Locked → " .. t.Name) 
+        else 
+            if KEYLOCK_ACTIVE then
+                Utils.SetAimlockTarget(nil)
+                Notify("KeyLock", "🔴 Turned OFF (No target on cursor)") 
+            else
                 Utils.SetAimlockTarget(nil)
                 Notify("KeyLock", "🔴 No target found") 
             end
@@ -1229,5 +1232,5 @@ task.spawn(function()
     end
 end)
 
-pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", { Title = "SLAXWARE", Text = "K TO HIDE GUI / \":\" KEY FOR CMDBAR", Icon = "rbxassetid://11706449560", Duration = 8 }) end)
+pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", { Title = "SLAXWARE :3", Text = "K TO HIDE GUI / \":\" KEY FOR CMDBAR", Icon = "rbxassetid://11706449560", Duration = 8 }) end)
 print("✅ SlaxWare Loaded | Press : to open command bar | K to toggle main GUI")

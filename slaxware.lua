@@ -131,6 +131,42 @@ local function IsVisible(targetPart, character)
     return result == nil
 end
 
+-- Sensitive Cursor Player Detection Engine
+local function FindPlayerClosestToMouse(maxDistancePixels)
+    maxDistancePixels = maxDistancePixels or 400
+    local mouseLoc = UserInputService:GetMouseLocation()
+    local bestPlayer = nil
+    local shortestDist = maxDistancePixels
+
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local hum = p.Character:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 and not (Settings.TeamCheck and p.TeamColor == LocalPlayer.TeamColor) then
+                local candidateParts = {
+                    p.Character:FindFirstChild(Settings.Hitpart),
+                    p.Character:FindFirstChild("Head"),
+                    p.Character:FindFirstChild("HumanoidRootPart"),
+                    p.Character:FindFirstChild("Torso"),
+                    p.Character:FindFirstChild("UpperTorso")
+                }
+                for _, part in ipairs(candidateParts) do
+                    if part then
+                        local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                        if onScreen then
+                            local dist = (Vector2.new(screenPos.X, screenPos.Y) - mouseLoc).Magnitude
+                            if dist < shortestDist and IsVisible(part, p.Character) then
+                                shortestDist = dist
+                                bestPlayer = p
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return bestPlayer
+end
+
 local function GetClosestPlayerToCursor()
     if KEYLOCK_ACTIVE and NAME_AIMLOCK_TARGET then
         local t = NAME_AIMLOCK_TARGET
@@ -142,24 +178,7 @@ local function GetClosestPlayerToCursor()
     end
     
     if not Settings.Enabled then return nil end
-
-    local closest, shortest = nil, Settings.FOV
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local hitp = player.Character:FindFirstChild(Settings.Hitpart)
-            local hum = player.Character:FindFirstChildOfClass("Humanoid")
-            if hitp and hum and hum.Health > 0 and not (Settings.TeamCheck and player.TeamColor == LocalPlayer.TeamColor) then
-                local screenPos, onScreen = Camera:WorldToViewportPoint(hitp.Position)
-                if onScreen then
-                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - UserInputService:GetMouseLocation()).Magnitude
-                    if dist < shortest and IsVisible(hitp, player.Character) then
-                        shortest = dist; closest = player
-                    end
-                end
-            end
-        end
-    end
-    return closest
+    return FindPlayerClosestToMouse(Settings.FOV)
 end
 
 -- // HOOKS
@@ -405,12 +424,29 @@ local function IsInsideRandomSpawner(obj)
         local ok, parent = pcall(function() return curr and curr.Parent end)
         if not ok or not parent then return false end
         local pName = parent.Name
-        if pName == "RandomSpawner" or pName == "RandomSpawners" or pName:find("RandomSpawner", 1, true) then
+        if pName == "RandomSpawner" or pName == "RandomSpawners" or pName:find("RandomSpawner", 1, true) or pName:find("Spawner", 1, true) then
             return true
         end
         curr = parent
     end
     return false
+end
+
+-- Check if object is an active thrown projectile moving through the air
+local function IsActiveThrownProjectile(obj)
+    local isMoving = false
+    pcall(function()
+        if obj:IsA("BasePart") and (obj.AssemblyLinearVelocity.Magnitude > 2 or obj.Velocity.Magnitude > 2) then
+            isMoving = true
+        else
+            for _, p in ipairs(obj:GetDescendants()) do
+                if p:IsA("BasePart") and (p.AssemblyLinearVelocity.Magnitude > 2 or p.Velocity.Magnitude > 2) then
+                    isMoving = true; break
+                end
+            end
+        end
+    end)
+    return isMoving
 end
 
 -- Strictly Safe Disambiguated Item Identification Engine
@@ -449,12 +485,12 @@ local function IdentifyObjectItem(o)
         local nameLower = o.Name:lower()
         local topNameLower = top and top.Name:lower() or ""
 
-        -- 1. UZI CHECK (Strict Mesh, Texture & Name Match)
+        -- 1. UZI CHECK
         if mId == "78158211342862" or mId == "4529712484" or tId == "111628501676927" or nameLower == "uzi" or topNameLower == "uzi" then
             return "uzi"
         end
 
-        -- 2. AR15 CHECK (Strict Mesh ID 137762422011047 & Model Name)
+        -- 2. AR15 CHECK
         if mId == "137762422011047" or nameLower == "ar15" or nameLower == "ar-15" or nameLower == "ar 15" or topNameLower == "ar15" then
             return "ar15"
         end
@@ -464,21 +500,33 @@ local function IdentifyObjectItem(o)
             return "golf"
         end
 
-        -- 4. Check Mesh / Texture ID registry for remaining items
+        -- 4. THROWABLE PROJECTILES FILTER (Pipebomb, Grenade, Flashbang)
+        -- Must be inside a RandomSpawner AND not actively flying/moving in the air
+        if mId == "441591858" or tId == "441591885" or nameLower == "pipebomb" or nameLower == "pipe bomb" or topNameLower == "pipebomb" then
+            if IsInsideRandomSpawner(o) and not IsActiveThrownProjectile(o) then return "pipebomb" end
+            return nil
+        end
+        if mId == "436966955" or tId == "436967973" or nameLower == "grenade" or topNameLower == "grenade" then
+            if IsInsideRandomSpawner(o) and not IsActiveThrownProjectile(o) then return "grenade" end
+            return nil
+        end
+        if mId == "454819719" or tId == "454819722" or nameLower == "flashbang" or nameLower == "flash" or topNameLower == "flashbang" then
+            if IsInsideRandomSpawner(o) and not IsActiveThrownProjectile(o) then return "flash" end
+            return nil
+        end
+
+        -- 5. Check Mesh / Texture ID registry for remaining items
         if mId and ID_TO_ITEM["mesh_" .. mId] then return ID_TO_ITEM["mesh_" .. mId] end
         if tId and ID_TO_ITEM["tex_" .. tId] then return ID_TO_ITEM["tex_" .. tId] end
         
-        -- 5. Exact name match checks for remaining items
-        if nameLower == "pipebomb" or nameLower == "pipe bomb" or topNameLower == "pipebomb" then return "pipebomb" end
-        if nameLower == "grenade" or topNameLower == "grenade" then return "grenade" end
-        if nameLower == "flashbang" or nameLower == "flash" or topNameLower == "flashbang" then return "flash" end
+        -- 6. Exact name match checks for remaining items
         if nameLower == "crowbar" or topNameLower == "crowbar" then return "crowbar" end
         if nameLower == "bat" or nameLower == "baseballbat" or nameLower == "baseball bat" or topNameLower == "bat" then return "bat" end
         
-        -- Brick validation (Must be Tawny colored 150, 85, 85)
+        -- Brick validation (Must be Tawny colored 150, 85, 85 AND inside RandomSpawner, NOT thrown)
         if nameLower == "brick" or topNameLower == "brick" then
             local partColor = (o:IsA("BasePart") and o.Color) or (top and top:IsA("BasePart") and top.Color)
-            if IsTawnyColor(partColor) then return "brick" end
+            if IsTawnyColor(partColor) and IsInsideRandomSpawner(o) and not IsActiveThrownProjectile(o) then return "brick" end
             return nil
         end
         
@@ -488,7 +536,7 @@ local function IdentifyObjectItem(o)
             return nil
         end
         
-        -- 6. Sound ID check (ONLY for non-shared unique sound assets, excluding generic melee swing sounds)
+        -- 7. Sound ID check (ONLY for non-shared unique sound assets, excluding generic melee swing sounds)
         if c == "Sound" then
             local sId = normId(o.SoundId)
             if sId and sId ~= "169285411" and sId ~= "175024455" and sId ~= "546410481" and sId ~= "1003717827" then
@@ -496,7 +544,7 @@ local function IdentifyObjectItem(o)
             end
         end
         
-        -- 7. General name fallback match
+        -- 8. General name fallback match
         if GET_ITEMS[nameLower] then return nameLower end
         for k, v in pairs(GET_ITEMS) do
             if v.name:lower() == nameLower or v.name:lower() == topNameLower then return k end
@@ -1380,28 +1428,13 @@ end, false, Enum.KeyCode.Semicolon)
 
 local function FireToggle(name)
     if name == "keylock" then
-        local t, sDist, mLoc = nil, Settings.FOV, UserInputService:GetMouseLocation()
-        for _, p in pairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild(Settings.Hitpart) and p.Character:FindFirstChildOfClass("Humanoid") and p.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
-                local sPos, on = Camera:WorldToViewportPoint(p.Character[Settings.Hitpart].Position)
-                if on then
-                    local d = (Vector2.new(sPos.X, sPos.Y) - mLoc).Magnitude
-                    if d < sDist then sDist = d; t = p end
-                end
-            end
-        end
-        
-        if t then 
+        local t = FindPlayerClosestToMouse(400)
+        if t then
             Utils.SetAimlockTarget(t)
-            Notify("KeyLock", "🎯 Locked → " .. t.Name) 
-        else 
-            if KEYLOCK_ACTIVE then
-                Utils.SetAimlockTarget(nil)
-                Notify("KeyLock", "🔴 Turned OFF (No target on cursor)") 
-            else
-                Utils.SetAimlockTarget(nil)
-                Notify("KeyLock", "🔴 No target found") 
-            end
+            Notify("KeyLock", "🎯 Locked → " .. t.Name)
+        else
+            Utils.SetAimlockTarget(nil)
+            Notify("KeyLock", "🔴 Keylock OFF (No player near cursor)")
         end
     elseif name == "itemesp" then
         SetItemESPState(not ITEM_ESP_ENABLED)

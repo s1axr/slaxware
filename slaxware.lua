@@ -1,13 +1,11 @@
 --[[
 
- ____ __ __ _ _ _ _ __ ____ ____
-/ ___)( ) / _\ ( \/ )/ )( \ / _\ ( _ \( __)
-\___ \/ (_/\/ \ ) ( \ /\ // \ ) / ) _)
-(____/\____/\_/\_/(_/\_)(_/\_)\_/\_/(__\_)(____)
-
--- Optimized UI Framework (Zero Local Limits)
--- Smart Search & Floating Dropdown Engine
--- Independent CursorLock / KeyLock Systems
+  _________.____       _____  ____  _____      __  _____ _____________________
+ /   _____/|    |     /  _  \ \   \/  /  \    /  \/  _  \\______   \_   _____/
+ \_____  \ |    |    /  /_\  \ \     /\   \/\/   /  /_\  \|       _/|    __)_ 
+ /        \|    |___/    |    \/     \ \        /    |    \    |   \|        \
+/_______  /|_______ \____|__  /___/\  \ \__/\  /\____|__  /____|_  /_______  /
+        \/         \/       \/      \_/      \/         \/       \/        \/ 
 
 ]]
 
@@ -88,11 +86,13 @@ local function LoadConfig()
 end
 LoadConfig()
 
--- // SILENT AIM & AIMLOCK SETTINGS
+-- // SILENT AIM, AIMLOCK & SPECTATOR SETTINGS
 local KEYLOCK_ACTIVE = false
 local NAME_AIMLOCK_TARGET = nil
 local CAMLOCK_TARGET = nil
 local CAMLOCK_ENABLED = false
+local VIEW_TARGET = nil
+local FULLZOOM_ENABLED = false
 local LASTPOS_ENABLED = false
 local LASTPOS_VALUE = nil
 local NOSLOW_ENABLED = false
@@ -101,7 +101,10 @@ local AUTO_RESET_ENABLED = false
 local FLY_ENABLED = false
 local NOCLIP_ENABLED = false
 local INFSTAM_ENABLED = false
+local infStamConnection = nil
+local isSettingStam = false
 local TPWALK_ENABLED = false
+local ITEM_ESP_ENABLED = false
 
 local Circle = Drawing.new("Circle")
 Circle.Color = Settings.FOVColor
@@ -129,7 +132,6 @@ local function IsVisible(targetPart, character)
 end
 
 local function GetClosestPlayerToCursor()
-    -- Prioritize specific KeyLock / Aimlock target
     if KEYLOCK_ACTIVE and NAME_AIMLOCK_TARGET then
         local t = NAME_AIMLOCK_TARGET
         if t and t.Character and t.Character:FindFirstChild(Settings.Hitpart) then
@@ -139,7 +141,6 @@ local function GetClosestPlayerToCursor()
         return nil
     end
     
-    -- Otherwise, use dynamic CursorLock (FOV Circle)
     if not Settings.Enabled then return nil end
 
     local closest, shortest = nil, Settings.FOV
@@ -258,6 +259,7 @@ function Utils.Stroke(p, c, t) local s=Instance.new("UIStroke",p); s.Color=c or 
 function Utils.Pad(p, t, b, l, r) local pd=Instance.new("UIPadding",p); if t then pd.PaddingTop=UDim.new(0,t) end; if b then pd.PaddingBottom=UDim.new(0,b) end; if l then pd.PaddingLeft=UDim.new(0,l) end; if r then pd.PaddingRight=UDim.new(0,r) end end
 
 function Utils.SetBtnState(btn, state, onText, offText)
+    if not btn then return end
     if state then
         btn.BackgroundColor3 = Color3.fromRGB(0,120,60)
         local s = btn:FindFirstChildOfClass("UIStroke"); if s then s.Color=Color3.fromRGB(0,180,90) end
@@ -291,7 +293,6 @@ function Utils.CreateTextBox(parent, layoutOrder, text, placeholder)
     return box
 end
 
--- Floating dropdown frame that does NOT push the GUI layout down
 function Utils.CreateDropFrame(referenceBox)
     local drop = Instance.new("ScrollingFrame", UI.ScreenGui)
     drop.BackgroundColor3 = Color3.fromRGB(30,30,30); drop.BorderSizePixel = 0
@@ -342,6 +343,362 @@ function Utils.CreateSlider(parent, layoutOrder, labelText, minVal, maxVal, curr
     end
 end
 
+local function Notify(title, text)
+    pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", { Title = title, Text = text, Duration = 3 }) end)
+end
+
+-- // GET ITEMS DEFINITIONS & UNIQUE ID LOOKUP
+local GET_ITEMS = {
+    ["money"]    = { name = "Money",        meshes = { "511726060" },                     textures = { "511726139" },                     sounds = {} },
+    ["grenade"]  = { name = "Grenade",      meshes = { "436966955" },                     textures = { "436966973" },                     sounds = {} },
+    ["flash"]    = { name = "Flashbang",    meshes = { "454819719" },                     textures = { "454819722" },                     sounds = {} },
+    ["golf"]     = { name = "Golf Club",    meshes = { "441573384" },                     textures = { "441573394" },                     sounds = {} },
+    ["ar15"]     = { name = "AR15",         meshes = { "137762422011047" },              textures = {},                                 sounds = {} },
+    ["molotov"]  = { name = "Molotov",      meshes = { "454823030" },                     textures = { "91135823000526" },                sounds = {} },
+    ["brick"]    = { name = "Brick",        meshes = {},                                  textures = { "8236335288" },                    sounds = {} },
+    ["usas"]     = { name = "USAS",         meshes = { "113830484254789" },              textures = { "129400613975716" },               sounds = { "142383762" } },
+    ["uzi"]      = { name = "Uzi",          meshes = { "78158211342862", "4529712484" },  textures = { "111628501676927", "4529712484" }, sounds = {} },
+    ["sawedoff"] = { name = "Sawed Off",    meshes = {},                                  textures = {},                                 sounds = { "219397110" } },
+    ["katana"]   = { name = "Katana",       meshes = { "12177251" },                      textures = { "12177147" },                      sounds = { "2227999690" } },
+    ["machete"]  = { name = "Machete",      meshes = { "441575918" },                     textures = { "441575955" },                     sounds = { "154965929" } },
+    ["pipebomb"] = { name = "Pipebomb",     meshes = { "441591858" },                     textures = { "441591885" },                     sounds = {} },
+    ["stopsign"] = { name = "Stop Sign",    meshes = {},                                  textures = { "116620941", "116620938" },        sounds = { "861978247", "16928541" } },
+    ["crowbar"]  = { name = "Crowbar",      meshes = {},                                  textures = {},                                 sounds = {} },
+    ["bat"]      = { name = "Bat",          meshes = {},                                  textures = {},                                 sounds = {} }
+}
+
+local ID_TO_ITEM = {}
+for itemKey, def in pairs(GET_ITEMS) do
+    for _, id in ipairs(def.meshes) do ID_TO_ITEM["mesh_" .. id] = itemKey end
+    for _, id in ipairs(def.textures) do ID_TO_ITEM["tex_" .. id] = itemKey end
+    for _, id in ipairs(def.sounds) do ID_TO_ITEM["snd_" .. id] = itemKey end
+end
+
+local function normId(s)
+    if not s or s == "" then return nil end
+    return tostring(s):lower():match("%d+")
+end
+
+-- Verify Tawny Color for Brick (150, 85, 85)
+local function IsTawnyColor(col)
+    if not col then return false end
+    local r, g, b = math.floor(col.R * 255 + 0.5), math.floor(col.G * 255 + 0.5), math.floor(col.B * 255 + 0.5)
+    return math.abs(r - 150) <= 25 and math.abs(g - 85) <= 25 and math.abs(b - 85) <= 25
+end
+
+-- Bounded 10-step Top Item Model Resolver
+local function GetTopItemModel(obj)
+    local curr = obj
+    for depth = 1, 10 do
+        local ok, parent = pcall(function() return curr and curr.Parent end)
+        if not ok or not parent or parent == workspace or parent == game then break end
+        if parent.Name == "RandomSpawner" or parent.Name == "RandomSpawners" then return curr end
+        curr = parent
+    end
+    return obj
+end
+
+-- Check if Object is inside a RandomSpawner Model
+local function IsInsideRandomSpawner(obj)
+    local curr = obj
+    for depth = 1, 10 do
+        local ok, parent = pcall(function() return curr and curr.Parent end)
+        if not ok or not parent then return false end
+        local pName = parent.Name
+        if pName == "RandomSpawner" or pName == "RandomSpawners" or pName:find("RandomSpawner", 1, true) then
+            return true
+        end
+        curr = parent
+    end
+    return false
+end
+
+-- Strictly Safe Disambiguated Item Identification Engine
+local function IdentifyObjectItem(o)
+    local ok, res = pcall(function()
+        if not o or not o.Parent then return nil end
+        
+        local top = GetTopItemModel(o)
+        
+        -- 0. Check if Top Model contains Golf Club's unique Mesh ID (441573384) or Texture ID (441573394)
+        if top then
+            for _, child in ipairs(top:GetDescendants()) do
+                local cc = child.ClassName
+                local cmId, ctId
+                if cc == "SpecialMesh" or cc == "FileMesh" then
+                    cmId = normId(child.MeshId); ctId = normId(child.TextureId)
+                elseif cc == "MeshPart" then
+                    cmId = normId(child.MeshId); ctId = normId(child.TextureID)
+                end
+                if cmId == "441573384" or ctId == "441573394" or child.Name:lower():find("golf") then
+                    return "golf"
+                end
+            end
+        end
+
+        local c = o.ClassName
+        local mId, tId
+        if c == "SpecialMesh" or c == "FileMesh" then
+            mId = normId(o.MeshId); tId = normId(o.TextureId)
+        elseif c == "MeshPart" then
+            mId = normId(o.MeshId); tId = normId(o.TextureID)
+        elseif c == "Texture" or c == "Decal" then
+            tId = normId(o.Texture)
+        end
+        
+        local nameLower = o.Name:lower()
+        local topNameLower = top and top.Name:lower() or ""
+
+        -- 1. UZI CHECK (Strict Mesh, Texture & Name Match)
+        if mId == "78158211342862" or mId == "4529712484" or tId == "111628501676927" or nameLower == "uzi" or topNameLower == "uzi" then
+            return "uzi"
+        end
+
+        -- 2. AR15 CHECK (Strict Mesh ID 137762422011047 & Model Name)
+        if mId == "137762422011047" or nameLower == "ar15" or nameLower == "ar-15" or nameLower == "ar 15" or topNameLower == "ar15" then
+            return "ar15"
+        end
+
+        -- 3. GOLF CLUB CHECK
+        if mId == "441573384" or tId == "441573394" or nameLower == "golfclub" or nameLower == "golf club" or nameLower == "golf" or topNameLower == "golfclub" or topNameLower == "golf club" then
+            return "golf"
+        end
+
+        -- 4. Check Mesh / Texture ID registry for remaining items
+        if mId and ID_TO_ITEM["mesh_" .. mId] then return ID_TO_ITEM["mesh_" .. mId] end
+        if tId and ID_TO_ITEM["tex_" .. tId] then return ID_TO_ITEM["tex_" .. tId] end
+        
+        -- 5. Exact name match checks for remaining items
+        if nameLower == "pipebomb" or nameLower == "pipe bomb" or topNameLower == "pipebomb" then return "pipebomb" end
+        if nameLower == "grenade" or topNameLower == "grenade" then return "grenade" end
+        if nameLower == "flashbang" or nameLower == "flash" or topNameLower == "flashbang" then return "flash" end
+        if nameLower == "crowbar" or topNameLower == "crowbar" then return "crowbar" end
+        if nameLower == "bat" or nameLower == "baseballbat" or nameLower == "baseball bat" or topNameLower == "bat" then return "bat" end
+        
+        -- Brick validation (Must be Tawny colored 150, 85, 85)
+        if nameLower == "brick" or topNameLower == "brick" then
+            local partColor = (o:IsA("BasePart") and o.Color) or (top and top:IsA("BasePart") and top.Color)
+            if IsTawnyColor(partColor) then return "brick" end
+            return nil
+        end
+        
+        -- Stop Sign map filter (Must be in a RandomSpawner, not static map background)
+        if nameLower == "stopsign" or nameLower == "stop sign" or topNameLower == "stopsign" then
+            if IsInsideRandomSpawner(o) then return "stopsign" end
+            return nil
+        end
+        
+        -- 6. Sound ID check (ONLY for non-shared unique sound assets, excluding generic melee swing sounds)
+        if c == "Sound" then
+            local sId = normId(o.SoundId)
+            if sId and sId ~= "169285411" and sId ~= "175024455" and sId ~= "546410481" and sId ~= "1003717827" then
+                if ID_TO_ITEM["snd_" .. sId] then return ID_TO_ITEM["snd_" .. sId] end
+            end
+        end
+        
+        -- 7. General name fallback match
+        if GET_ITEMS[nameLower] then return nameLower end
+        for k, v in pairs(GET_ITEMS) do
+            if v.name:lower() == nameLower or v.name:lower() == topNameLower then return k end
+        end
+        
+        return nil
+    end)
+    return ok and res or nil
+end
+
+-- Check if Item is inside any Player's Character or Backpack (Filters out held items)
+local function IsItemHeldByPlayer(obj)
+    local top = GetTopItemModel(obj)
+    if not top then return true end
+    
+    local isHeld = false
+    pcall(function()
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player.Character and (top:IsDescendantOf(player.Character) or top == player.Character) then
+                isHeld = true; break
+            end
+            if player:FindFirstChild("Backpack") and top:IsDescendantOf(player.Backpack) then
+                isHeld = true; break
+            end
+        end
+    end)
+    return isHeld
+end
+
+-- Safe Crash-Proof Spawner-Only Item Search
+local function FindItemInstances(itemKey)
+    local iDef = GET_ITEMS[itemKey]
+    if not iDef then return {} end
+    
+    local found, seen = {}, {}
+    local ok, desc = pcall(function() return workspace:GetDescendants() end)
+    if not ok or not desc then return {} end
+    
+    local count = 0
+    for _, o in ipairs(desc) do
+        count = count + 1
+        if count % 150 == 0 then task.wait() end
+        
+        local matchKey = IdentifyObjectItem(o)
+        if matchKey == itemKey and not IsItemHeldByPlayer(o) then
+            local tg = GetTopItemModel(o)
+            if tg and pcall(function() return tg.Parent end) and not seen[tg] then
+                seen[tg] = true
+                table.insert(found, tg)
+            end
+        end
+    end
+    return found
+end
+
+-- Classic Position-Step Teleport Engine
+local function TeleportToPosition(targetPos)
+    pcall(function()
+        local char = LocalPlayer.Character; if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+        
+        local _wasNoclip = NOCLIP_ENABLED
+        NOCLIP_ENABLED = true
+        
+        local startPos = hrp.Position
+        local endPos = targetPos + Vector3.new(0, 3, 0)
+        local dist = (endPos - startPos).Magnitude
+        
+        local stepDistance = 4
+        local steps = math.max(1, math.ceil(dist / stepDistance))
+        
+        for i = 1, steps do
+            local c = LocalPlayer.Character; if not c then break end
+            local h = c:FindFirstChild("HumanoidRootPart"); if not h then break end
+            
+            local alpha = i / steps
+            h.CFrame = CFrame.new(startPos:Lerp(endPos, alpha))
+            task.wait(0.03)
+        end
+        
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(endPos)
+        end
+        
+        task.wait(0.1)
+        if not _wasNoclip then
+            NOCLIP_ENABLED = false
+            Utils.SetBtnState(UI.NoclipToggle, false, "Noclip: ON", "Noclip: OFF")
+        end
+    end)
+end
+
+-- Main Self-Contained Item Teleport Handler (Used by both Command and GUI Buttons)
+local function GetItem(itemKey)
+    local iDef = GET_ITEMS[itemKey]
+    if not iDef then
+        Notify("Get", "❌ Unknown item: " .. tostring(itemKey))
+        return
+    end
+    
+    Notify("Get", "🔍 Scanning for " .. iDef.name .. "...")
+    
+    task.spawn(function()
+        local foundTargets = FindItemInstances(itemKey)
+        
+        if #foundTargets == 0 then
+            Notify("Get", "❌ No " .. iDef.name .. " found on map!")
+            return
+        end
+        
+        local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        local bestTarget = foundTargets[1]
+        local bestDist = math.huge
+        
+        if hrp then
+            for _, tg in ipairs(foundTargets) do
+                pcall(function()
+                    local pos
+                    if tg:IsA("Model") then
+                        pos = tg.PrimaryPart and tg.PrimaryPart.Position
+                        if not pos then for _, v in pairs(tg:GetDescendants()) do if v:IsA("BasePart") then pos = v.Position; break end end end
+                    elseif tg:IsA("BasePart") then
+                        pos = tg.Position
+                    end
+                    if pos then
+                        local d = (pos - hrp.Position).Magnitude
+                        if d < bestDist then bestDist = d; bestTarget = tg end
+                    end
+                end)
+            end
+        end
+        
+        local targetPos
+        pcall(function()
+            if bestTarget:IsA("Model") then
+                targetPos = bestTarget.PrimaryPart and bestTarget.PrimaryPart.Position
+                if not targetPos then for _, v in pairs(bestTarget:GetDescendants()) do if v:IsA("BasePart") then targetPos = v.Position; break end end end
+            elseif bestTarget:IsA("BasePart") then
+                targetPos = bestTarget.Position
+            end
+        end)
+        
+        if not targetPos then
+            Notify("Get", "❌ Invalid position")
+            return
+        end
+        
+        if targetPos.Y < -50 then
+            Notify("Get", "⚠️ Item in void")
+            return
+        end
+        
+        TeleportToPosition(targetPos)
+        
+        pcall(function()
+            local prompt = bestTarget:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if prompt then
+                prompt.MaxActivationDistance = 999
+                prompt.HoldDuration = 0
+                prompt.RequiresLineOfSight = false
+                prompt:InputHoldBegin(); task.wait(0.05); prompt:InputHoldEnd()
+            end
+        end)
+        
+        Notify("Get", "✅ Arrived at " .. iDef.name .. "!")
+    end)
+end
+
+-- Non-Recursive Safe InfStam Handler
+local function ApplyInfStam(char)
+    if not char then return end
+    task.spawn(function()
+        local ok, stam = pcall(function() return char:WaitForChild("Stamina", 3) end)
+        local ok2, mstam = pcall(function() return char:WaitForChild("MaxStamina", 3) end)
+        if ok and ok2 and stam and mstam then
+            if infStamConnection then infStamConnection:Disconnect(); infStamConnection = nil end
+            
+            infStamConnection = stam:GetPropertyChangedSignal("Value"):Connect(function()
+                if INFSTAM_ENABLED and not isSettingStam then
+                    pcall(function()
+                        if stam.Value < mstam.Value then
+                            isSettingStam = true
+                            stam.Value = mstam.Value
+                            isSettingStam = false
+                        end
+                    end)
+                end
+            end)
+            
+            if INFSTAM_ENABLED then
+                pcall(function()
+                    if stam.Value < mstam.Value then
+                        isSettingStam = true
+                        stam.Value = mstam.Value
+                        isSettingStam = false
+                    end
+                end)
+            end
+        end
+    end)
+end
+
 -- -----------------------------------------------------
 -- // MAIN UI ASSEMBLY
 -- -----------------------------------------------------
@@ -353,14 +710,14 @@ UI.Container = Instance.new("Frame", UI.ScreenGui)
 UI.Container.Size = UDim2.new(0, 240, 0, 440); UI.Container.Position = UDim2.new(0.5, -120, 0.5, -220)
 UI.Container.BackgroundTransparency = 1; UI.Container.Active = true
 
--- Slaxware Frame
+-- Slaxware Main Frame
 do
     local Frame = Instance.new("Frame", UI.Container)
     Frame.Size = UDim2.new(1,0,1,0); Frame.BackgroundColor3 = Color3.fromRGB(22,22,22); Frame.BorderSizePixel = 0; Frame.ZIndex = 10; Frame.ClipsDescendants = true
     Utils.Corner(Frame); Utils.Stroke(Frame)
     
     local Title = Instance.new("TextLabel", Frame)
-    Title.Size = UDim2.new(1,0,0,30); Title.BackgroundColor3 = Color3.fromRGB(15,15,15); Title.Text = "  SLAXWARE 🐈"; Title.TextXAlignment = Enum.TextXAlignment.Left; Title.TextColor3 = Color3.fromRGB(0,180,255); Title.TextSize = 13; Title.Font = Enum.Font.GothamBold
+    Title.Size = UDim2.new(1,0,0,30); Title.BackgroundColor3 = Color3.fromRGB(15,15,15); Title.Text = "  SLAXWARE :3"; Title.TextXAlignment = Enum.TextXAlignment.Left; Title.TextColor3 = Color3.fromRGB(0,180,255); Title.TextSize = 13; Title.Font = Enum.Font.GothamBold
     local TLine = Instance.new("Frame", Title); TLine.Size = UDim2.new(1,0,0,1); TLine.Position = UDim2.new(0,0,1,0); TLine.BackgroundColor3 = Color3.fromRGB(45,45,45); TLine.BorderSizePixel = 0
     
     local MinBtn = Instance.new("TextButton", Title)
@@ -384,6 +741,46 @@ do
     Utils.Pad(UI.Content, 8,8,0,0)
     local layout = Instance.new("UIListLayout", UI.Content); layout.SortOrder = Enum.SortOrder.LayoutOrder; layout.Padding = UDim.new(0,6); layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() UI.Content.CanvasSize = UDim2.new(0,0,0,layout.AbsoluteContentSize.Y + 16) end)
+end
+
+-- Items List Slide-Out GUI
+UI.ItemsFrame = Instance.new("Frame", UI.Container)
+UI.ItemsFrame.Size = UDim2.new(1,0,1,0); UI.ItemsFrame.BackgroundColor3 = Color3.fromRGB(22,22,22); UI.ItemsFrame.BorderSizePixel = 0; UI.ItemsFrame.ZIndex = 6; UI.ItemsFrame.ClipsDescendants = true
+do
+    Utils.Corner(UI.ItemsFrame); Utils.Stroke(UI.ItemsFrame)
+    local Title = Instance.new("TextLabel", UI.ItemsFrame)
+    Title.Size = UDim2.new(1,0,0,30); Title.BackgroundColor3 = Color3.fromRGB(15,15,15); Title.Text = "  📦 GET ITEMS LIST"; Title.TextColor3 = Color3.fromRGB(0,180,255); Title.TextXAlignment = Enum.TextXAlignment.Left; Title.TextSize = 13; Title.Font = Enum.Font.GothamBold
+    local line = Instance.new("Frame", Title); line.Size = UDim2.new(1,0,0,1); line.Position = UDim2.new(0,0,1,0); line.BackgroundColor3 = Color3.fromRGB(45,45,45); line.BorderSizePixel = 0
+    local CBtn = Instance.new("TextButton", Title); CBtn.Size = UDim2.new(0,30,0,30); CBtn.Position = UDim2.new(1,-30,0,0); CBtn.BackgroundTransparency = 1; CBtn.Text = "X"; CBtn.TextColor3 = Color3.fromRGB(180,50,50); CBtn.Font = Enum.Font.GothamBold; CBtn.TextSize = 14
+    CBtn.MouseButton1Click:Connect(function() TweenService:Create(UI.ItemsFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0,0,0,0)}):Play() end)
+    task.spawn(function() while true do Title.TextColor3 = Color3.fromHSV((tick()%5)/5,1,1); task.wait() end end)
+    
+    local IContent = Instance.new("ScrollingFrame", UI.ItemsFrame)
+    IContent.Size = UDim2.new(1,0,1,-30); IContent.Position = UDim2.new(0,0,0,30); IContent.BackgroundTransparency = 1; IContent.BorderSizePixel = 0; IContent.ScrollBarThickness = 4
+    Utils.Pad(IContent, 8,8,10,10)
+    local layout = Instance.new("UIListLayout", IContent); layout.SortOrder = Enum.SortOrder.LayoutOrder; layout.Padding = UDim.new(0,6)
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() IContent.CanvasSize = UDim2.new(0,0,0,layout.AbsoluteContentSize.Y + 16) end)
+    
+    local sortedKeys = {}
+    for k in pairs(GET_ITEMS) do table.insert(sortedKeys, k) end
+    table.sort(sortedKeys)
+    
+    for count, itemKey in ipairs(sortedKeys) do
+        local itemDef = GET_ITEMS[itemKey]
+        local row = Instance.new("Frame", IContent); row.Size = UDim2.new(1,0,0,32); row.BackgroundColor3 = Color3.fromRGB(30,30,30); row.BorderSizePixel = 0; row.LayoutOrder = count
+        Utils.Corner(row, 4); Utils.Stroke(row, Color3.fromRGB(50,50,50))
+        
+        local lbl = Instance.new("TextLabel", row); lbl.Size = UDim2.new(1,-65,1,0); lbl.Position = UDim2.new(0,8,0,0); lbl.BackgroundTransparency = 1
+        lbl.Text = itemDef.name .. " (" .. itemKey .. ")"; lbl.TextColor3 = Color3.fromRGB(220,220,220); lbl.TextSize = 11; lbl.Font = Enum.Font.GothamSemibold; lbl.TextXAlignment = Enum.TextXAlignment.Left
+        
+        local getBtn = Instance.new("TextButton", row); getBtn.Size = UDim2.new(0,50,0,22); getBtn.Position = UDim2.new(1,-54,0.5,-11); getBtn.BackgroundColor3 = Color3.fromRGB(0,120,60); getBtn.BorderSizePixel = 0
+        getBtn.Text = "GET"; getBtn.TextColor3 = Color3.fromRGB(255,255,255); getBtn.Font = Enum.Font.GothamBold; getBtn.TextSize = 10
+        Utils.Corner(getBtn, 4); Utils.Stroke(getBtn, Color3.fromRGB(0,180,90))
+        
+        getBtn.MouseButton1Click:Connect(function()
+            GetItem(itemKey)
+        end)
+    end
 end
 
 -- Binds Slide-Out
@@ -469,6 +866,15 @@ do
     Utils.CreateSlider(BContent, bn(), "Opacity", 0.0, 1.0, BulletTransparency, 2, function(v) BulletTransparency = v; if BULLET_TRAILS_ENABLED then UpdateActiveBullets() end; SaveConfig() end)
 end
 
+-- Item ESP State Toggle Handler
+local ClearAllItemESP;
+local function SetItemESPState(enabled)
+    ITEM_ESP_ENABLED = enabled
+    Utils.SetBtnState(UI.ItemESPToggle, ITEM_ESP_ENABLED, "Item ESP: ON", "Item ESP: OFF")
+    if not ITEM_ESP_ENABLED and ClearAllItemESP then ClearAllItemESP() end
+    Notify("Item ESP", ITEM_ESP_ENABLED and "🟢 Enabled" or "🔴 Disabled")
+end
+
 -- // DROPDOWN & NOTIFY LOGIC
 getgenv().ESP_All = false
 getgenv().ESP_Players = {}
@@ -483,11 +889,6 @@ function Utils.UpdateESPBtnLabel()
     end
 end
 
--- Aimlock Target syncs with Keylock toggle seamlessly
-local function Notify(title, text)
-    pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", { Title = title, Text = text, Duration = 3 }) end)
-end
-
 function Utils.SetAimlockTarget(plr)
     NAME_AIMLOCK_TARGET = plr
     KEYLOCK_ACTIVE = (plr ~= nil)
@@ -496,21 +897,18 @@ function Utils.SetAimlockTarget(plr)
         UI.AimlockDropBtn.Text = "▼ " .. plr.Name
         UI.NameAimlockStatus.Text = "Status: " .. plr.Name; UI.NameAimlockStatus.TextColor3 = Color3.fromRGB(0, 200, 80)
         
-        -- Automatically turn OFF CursorLock if it is enabled
         if Settings.Enabled then
             Settings.Enabled = false
             Utils.SetBtnState(UI.ToggleBtn, false, "CursorLock: ON", "CursorLock: OFF")
             Notify("CursorLock", "🔴 Disabled by AimLock")
         end
         
-        -- Update Keylock bind visually to green
         UI.KeylockBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 60)
         local s = UI.KeylockBtn:FindFirstChildOfClass("UIStroke"); if s then s.Color = Color3.fromRGB(0, 180, 90) end
     else
         UI.AimlockDropBtn.Text = "▼ Aimlock Target"
         UI.NameAimlockStatus.Text = "Status: inactive"; UI.NameAimlockStatus.TextColor3 = Color3.fromRGB(150, 150, 150)
         
-        -- Revert Keylock bind visual back to default
         UI.KeylockBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
         local s = UI.KeylockBtn:FindFirstChildOfClass("UIStroke"); if s then s.Color = Color3.fromRGB(60, 60, 60) end
     end
@@ -523,11 +921,11 @@ function Utils.SetCamlockTarget(plr)
     UI.CamlockDropBtn.Text = plr and ("▼ " .. plr.Name) or "▼ Camlock Target"
 end
 
--- Toggles Assembly
+-- Main Controls Assembly (Restored Original Layout Order + Item ESP)
 do
     local cO = 0; local function co() cO = cO + 1 return cO end
     
-    -- CursorLock Toggle Disables KeyLock/Aimlock when turned on
+    -- 1. CursorLock Toggle
     UI.ToggleBtn = Utils.CreateButton(UI.Content, co(), "CursorLock: OFF")
     UI.ToggleBtn.MouseButton1Click:Connect(function() 
         Settings.Enabled = not Settings.Enabled
@@ -540,43 +938,100 @@ do
         end
     end)
     
+    -- 2. FOV Toggle & Slider
     UI.FOVCircleToggle = Utils.CreateButton(UI.Content, co(), "FOV: Hidden")
-    UI.FOVCircleToggle.MouseButton1Click:Connect(function() Settings.ShowFOV = not Settings.ShowFOV; Aiming.ShowFOV = Settings.ShowFOV; Utils.SetBtnState(UI.FOVCircleToggle, Settings.ShowFOV, "FOV: Visible", "FOV: Hidden") end)
+    UI.FOVCircleToggle.MouseButton1Click:Connect(function() 
+        Settings.ShowFOV = not Settings.ShowFOV
+        Aiming.ShowFOV = Settings.ShowFOV
+        Utils.SetBtnState(UI.FOVCircleToggle, Settings.ShowFOV, "FOV: Visible", "FOV: Hidden") 
+    end)
     Utils.CreateSlider(UI.Content, co(), "FOV Size", 10, 800, Settings.FOV, 0, function(v) Settings.FOV = v; SaveConfig() end)
 
+    -- 3. Aimlock Search Bar & Status
     UI.AimlockDropBtn = Utils.CreateTextBox(UI.Content, co(), "▼ Aimlock Target", "🔍 Search aimlock...")
-    UI.NameAimlockStatus = Instance.new("TextLabel", UI.Content); UI.NameAimlockStatus.Size = UDim2.new(1,-24,0,16); UI.NameAimlockStatus.LayoutOrder = co(); UI.NameAimlockStatus.BackgroundTransparency = 1; UI.NameAimlockStatus.Text = "Status: inactive"; UI.NameAimlockStatus.TextColor3 = Color3.fromRGB(150,150,150); UI.NameAimlockStatus.TextSize = 11; UI.NameAimlockStatus.Font = Enum.Font.Gotham; UI.NameAimlockStatus.TextXAlignment = Enum.TextXAlignment.Left
+    UI.NameAimlockStatus = Instance.new("TextLabel", UI.Content)
+    UI.NameAimlockStatus.Size = UDim2.new(1,-24,0,16); UI.NameAimlockStatus.LayoutOrder = co()
+    UI.NameAimlockStatus.BackgroundTransparency = 1; UI.NameAimlockStatus.Text = "Status: inactive"
+    UI.NameAimlockStatus.TextColor3 = Color3.fromRGB(150,150,150); UI.NameAimlockStatus.TextSize = 11
+    UI.NameAimlockStatus.Font = Enum.Font.Gotham; UI.NameAimlockStatus.TextXAlignment = Enum.TextXAlignment.Left
     UI.AimlockDropFrame = Utils.CreateDropFrame(UI.AimlockDropBtn)
 
+    -- 4. Camlock Toggle & Search Bar
     UI.CamlockToggle = Utils.CreateButton(UI.Content, co(), "Camlock: OFF")
-    UI.CamlockToggle.MouseButton1Click:Connect(function() CAMLOCK_ENABLED = not CAMLOCK_ENABLED; Utils.SetBtnState(UI.CamlockToggle, CAMLOCK_ENABLED, "Camlock: ON", "Camlock: OFF") end)
+    UI.CamlockToggle.MouseButton1Click:Connect(function() 
+        CAMLOCK_ENABLED = not CAMLOCK_ENABLED
+        Utils.SetBtnState(UI.CamlockToggle, CAMLOCK_ENABLED, "Camlock: ON", "Camlock: OFF") 
+    end)
     UI.CamlockDropBtn = Utils.CreateTextBox(UI.Content, co(), "▼ Camlock Target", "🔍 Search camlock...")
     UI.CamlockDropFrame = Utils.CreateDropFrame(UI.CamlockDropBtn)
 
+    -- 5. Player ESP Search Bar
     UI.ESPDropBtn = Utils.CreateTextBox(UI.Content, co(), "ESP: None ▼", "🔍 Search players...")
     UI.ESPDropFrame = Utils.CreateDropFrame(UI.ESPDropBtn)
 
+    -- 6. Item ESP Toggle (Added)
+    UI.ItemESPToggle = Utils.CreateButton(UI.Content, co(), "Item ESP: OFF")
+    UI.ItemESPToggle.MouseButton1Click:Connect(function()
+        SetItemESPState(not ITEM_ESP_ENABLED)
+    end)
+
+    -- 7. Fly Toggle & Speed Slider
     UI.FlyToggle = Utils.CreateButton(UI.Content, co(), "Fly: OFF")
-    local updateFlySpeed = Utils.CreateSlider(UI.Content, co(), "Fly Speed", 10, 300, FLY_SPEED, 0, function(v) FLY_SPEED = v; SaveConfig() end)
+    UI.FlyToggle.MouseButton1Click:Connect(function() 
+        FLY_ENABLED = not FLY_ENABLED
+        Utils.SetBtnState(UI.FlyToggle, FLY_ENABLED, "Fly: ON", "Fly: OFF")
+        if FLY_ENABLED then StartFly() else StopFly() end 
+    end)
+    Utils.CreateSlider(UI.Content, co(), "Fly Speed", 10, 300, FLY_SPEED, 0, function(v) FLY_SPEED = v; SaveConfig() end)
+
+    -- 8. Noclip Toggle
     UI.NoclipToggle = Utils.CreateButton(UI.Content, co(), "Noclip: OFF")
-    UI.NoclipToggle.MouseButton1Click:Connect(function() NOCLIP_ENABLED = not NOCLIP_ENABLED; Utils.SetBtnState(UI.NoclipToggle, NOCLIP_ENABLED, "Noclip: ON", "Noclip: OFF") end)
+    UI.NoclipToggle.MouseButton1Click:Connect(function() 
+        NOCLIP_ENABLED = not NOCLIP_ENABLED
+        Utils.SetBtnState(UI.NoclipToggle, NOCLIP_ENABLED, "Noclip: ON", "Noclip: OFF") 
+    end)
     
+    -- 9. TPWalk Toggle & Walk Speed Slider
     UI.TPWalkToggle = Utils.CreateButton(UI.Content, co(), "TPWalk: OFF")
-    UI.TPWalkToggle.MouseButton1Click:Connect(function() TPWALK_ENABLED = not TPWALK_ENABLED; Utils.SetBtnState(UI.TPWalkToggle, TPWALK_ENABLED, "TPWalk: ON", "TPWalk: OFF") end)
-    local updateTPWalkSpeed = Utils.CreateSlider(UI.Content, co(), "Walk Speed", 5, 150, TPWALK_SPEED, 0, function(v) TPWALK_SPEED = v; SaveConfig() end)
+    UI.TPWalkToggle.MouseButton1Click:Connect(function() 
+        TPWALK_ENABLED = not TPWALK_ENABLED
+        Utils.SetBtnState(UI.TPWalkToggle, TPWALK_ENABLED, "TPWalk: ON", "TPWalk: OFF") 
+    end)
+    Utils.CreateSlider(UI.Content, co(), "Walk Speed", 5, 150, TPWALK_SPEED, 0, function(v) TPWALK_SPEED = v; SaveConfig() end)
 
+    -- 10. AutoReset Toggle
     UI.AutoResetToggle = Utils.CreateButton(UI.Content, co(), "AutoReset (10HP): OFF")
-    UI.AutoResetToggle.MouseButton1Click:Connect(function() AUTO_RESET_ENABLED = not AUTO_RESET_ENABLED; Utils.SetBtnState(UI.AutoResetToggle, AUTO_RESET_ENABLED, "AutoReset: ON", "AutoReset (10HP): OFF") end)
+    UI.AutoResetToggle.MouseButton1Click:Connect(function() 
+        AUTO_RESET_ENABLED = not AUTO_RESET_ENABLED
+        Utils.SetBtnState(UI.AutoResetToggle, AUTO_RESET_ENABLED, "AutoReset: ON", "AutoReset (10HP): OFF") 
+    end)
 
+    -- 11. Inf Stamina Toggle
     UI.InfStamToggle = Utils.CreateButton(UI.Content, co(), "InfStamina: OFF")
+    UI.InfStamToggle.MouseButton1Click:Connect(function() 
+        INFSTAM_ENABLED = not INFSTAM_ENABLED
+        Utils.SetBtnState(UI.InfStamToggle, INFSTAM_ENABLED, "InfStamina: ON", "InfStamina: OFF")
+        if INFSTAM_ENABLED then 
+            ApplyInfStam(LocalPlayer.Character) 
+        else 
+            if infStamConnection then infStamConnection:Disconnect(); infStamConnection = nil end 
+        end 
+    end)
     
+    -- 12. Keylock Bind Button
     local initialKeylockText = Binds["keylock"] and ("Keylock Bind: " .. Binds["keylock"].Name) or "Keylock Bind: None"
     UI.KeylockBtn = Utils.CreateButton(UI.Content, co(), initialKeylockText)
     UI.isBindingKeylock = false
-    UI.KeylockBtn.MouseButton1Click:Connect(function() UI.isBindingKeylock = true; UI.KeylockBtn.Text = "Keylock Bind: [ Press Any Key ]" end)
+    UI.KeylockBtn.MouseButton1Click:Connect(function() 
+        UI.isBindingKeylock = true
+        UI.KeylockBtn.Text = "Keylock Bind: [ Press Any Key ]" 
+    end)
 
+    -- 13. Custom Bullet Trails Button
     local CustomTrailsBtn = Utils.CreateButton(UI.Content, co(), "Custom Bullet Trails")
-    CustomTrailsBtn.MouseButton1Click:Connect(function() TweenService:Create(UI.BulletFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, -250, 0, 0)}):Play() end)
+    CustomTrailsBtn.MouseButton1Click:Connect(function() 
+        TweenService:Create(UI.BulletFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, -250, 0, 0)}):Play() 
+    end)
 end
 
 -- Dropdown Population System
@@ -610,7 +1065,6 @@ do
             Utils.UpdateESPBtnLabel(); if UI.ESPDropBtn:IsFocused() then updateESPDrop() end 
         end)
     end
-    -- ERASES TEXT ON CLICK
     UI.ESPDropBtn.Focused:Connect(function() eO=true; UI.ESPDropBtn.Text=""; updateESPDrop(); UI.ESPDropFrame.Visible=true end)
     UI.ESPDropBtn:GetPropertyChangedSignal("Text"):Connect(function() if not UI.ESPDropBtn:IsFocused() then return end; updateESPDrop() end)
     UI.ESPDropBtn.FocusLost:Connect(function() task.delay(0.15, function() if eO and not UI.ESPDropBtn:IsFocused() then eO=false; UI.ESPDropFrame.Visible=false; Utils.UpdateESPBtnLabel() end end) end)
@@ -625,7 +1079,6 @@ do
             return res 
         end, function(ent) Utils.SetAimlockTarget(ent.player); UI.AimlockDropFrame.Visible=false; aO=false; UI.AimlockDropBtn:ReleaseFocus() end)
     end
-    -- ERASES TEXT ON CLICK
     UI.AimlockDropBtn.Focused:Connect(function() aO=true; UI.AimlockDropBtn.Text=""; updateAimDrop(); UI.AimlockDropFrame.Visible=true end)
     UI.AimlockDropBtn:GetPropertyChangedSignal("Text"):Connect(function() if not UI.AimlockDropBtn:IsFocused() then return end; updateAimDrop() end)
     UI.AimlockDropBtn.FocusLost:Connect(function() task.delay(0.15, function() if aO and not UI.AimlockDropBtn:IsFocused() then aO=false; UI.AimlockDropFrame.Visible=false; UI.AimlockDropBtn.Text = NAME_AIMLOCK_TARGET and ("▼ " .. NAME_AIMLOCK_TARGET.Name) or "▼ Aimlock Target" end end) end)
@@ -640,7 +1093,6 @@ do
             return res 
         end, function(ent) Utils.SetCamlockTarget(ent.player); UI.CamlockDropFrame.Visible=false; cO=false; UI.CamlockDropBtn:ReleaseFocus() end)
     end
-    -- ERASES TEXT ON CLICK
     UI.CamlockDropBtn.Focused:Connect(function() cO=true; UI.CamlockDropBtn.Text=""; updateCamDrop(); UI.CamlockDropFrame.Visible=true end)
     UI.CamlockDropBtn:GetPropertyChangedSignal("Text"):Connect(function() if not UI.CamlockDropBtn:IsFocused() then return end; updateCamDrop() end)
     UI.CamlockDropBtn.FocusLost:Connect(function() task.delay(0.15, function() if cO and not UI.CamlockDropBtn:IsFocused() then cO=false; UI.CamlockDropFrame.Visible=false; UI.CamlockDropBtn.Text = CAMLOCK_TARGET and ("▼ " .. CAMLOCK_TARGET.Name) or "▼ Camlock Target" end end) end)
@@ -658,6 +1110,9 @@ RunService.RenderStepped:Connect(function()
     if CAMLOCK_ENABLED and CAMLOCK_TARGET and CAMLOCK_TARGET.Character then
         local p = CAMLOCK_TARGET.Character:FindFirstChild(Settings.Hitpart)
         if p then Camera.CFrame = CFrame.new(Camera.CFrame.Position, p.Position) end
+    end
+    if VIEW_TARGET and VIEW_TARGET.Character and VIEW_TARGET.Character:FindFirstChildOfClass("Humanoid") then
+        Camera.CameraSubject = VIEW_TARGET.Character:FindFirstChildOfClass("Humanoid")
     end
 end)
 
@@ -696,22 +1151,10 @@ local function StartFly()
         r.SlaxFlyBV.Velocity = dir.Magnitude > 0 and (dir.Unit * math.min(FLY_SPEED, 150)) or Vector3.new(0,0,0)
     end)
 end
-UI.FlyToggle.MouseButton1Click:Connect(function() FLY_ENABLED = not FLY_ENABLED; Utils.SetBtnState(UI.FlyToggle, FLY_ENABLED, "Fly: ON", "Fly: OFF"); if FLY_ENABLED then StartFly() else StopFly() end end)
 
 RunService.Stepped:Connect(function()
     if NOCLIP_ENABLED and LocalPlayer.Character then for _, p in pairs(LocalPlayer.Character:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = false end end end
 end)
-
-local function ApplyInfStam(char)
-    if not char then return end
-    local stam, mstam = char:WaitForChild("Stamina", 5), char:WaitForChild("MaxStamina", 5)
-    if stam and mstam then
-        if infStamConnection then infStamConnection:Disconnect() end
-        infStamConnection = stam:GetPropertyChangedSignal("Value"):Connect(function() if INFSTAM_ENABLED and stam.Value < mstam.Value then stam.Value = mstam.Value end end)
-        if INFSTAM_ENABLED then stam.Value = mstam.Value end
-    end
-end
-UI.InfStamToggle.MouseButton1Click:Connect(function() INFSTAM_ENABLED = not INFSTAM_ENABLED; Utils.SetBtnState(UI.InfStamToggle, INFSTAM_ENABLED, "InfStamina: ON", "InfStamina: OFF"); if INFSTAM_ENABLED then ApplyInfStam(LocalPlayer.Character) elseif infStamConnection then infStamConnection:Disconnect(); infStamConnection = nil end end)
 
 local NOSLOW_TAGS = { ["reloading"]=true, ["ko"]=true, ["action"]=true, ["creatorslow"]=true, ["gunslow"]=true }
 local tagHooked, oldTagHas = false, nil
@@ -737,6 +1180,7 @@ local function SlaxHookCharacter(char)
     if LASTPOS_ENABLED and LASTPOS_VALUE then task.delay(0.25, function() pcall(function() local fH = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart"); if fH then fH.CFrame = LASTPOS_VALUE end end) end) end
     if not hum then return end
     if INFSTAM_ENABLED then task.spawn(ApplyInfStam, char) end
+    if FULLZOOM_ENABLED then LocalPlayer.CameraMaxZoomDistance = 99999 end
     hum.Died:Connect(function() if FLY_ENABLED then StopFly() end; if hrp and hrp.Parent then LASTPOS_VALUE = hrp.CFrame end end)
     if NOSLOW_ENABLED then for _, c in pairs(char:GetChildren()) do if NOSLOW_TAGS[c.Name:lower()] then pcall(function() c:Destroy() end) end end end
 end
@@ -746,6 +1190,7 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     if FLY_ENABLED then task.wait(0.5) StartFly() end
     task.wait(1) HookTagSystem()
     SlaxHookCharacter(char)
+    if VIEW_TARGET == nil and char:FindFirstChildOfClass("Humanoid") then Camera.CameraSubject = char:FindFirstChildOfClass("Humanoid") end
 end)
 if LocalPlayer.Character then task.spawn(SlaxHookCharacter, LocalPlayer.Character) end
 
@@ -761,7 +1206,7 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- // COMMAND ENGINE & SMART AUTOCOMPLETE
-local AUTOCOMPLETE_COMMANDS = { "bind ", "unbind ", "unbind all", "bindlist", "get ", "cmd", "chatenable", "aimlock ", "autoreset", "fly", "unfly", "unaimlock", "noclip", "clip", "infstam", "uninfstam", "rejoin", "camlock ", "tpwalk ", "fov on", "fov off", "esp ", "lastpos", "unlastpos", "noslow", "unnoslow", "reset" }
+local AUTOCOMPLETE_COMMANDS = { "bind ", "unbind ", "unbind all", "bindlist", "get ", "getlist", "items", "cmd", "chatenable", "aimlock ", "autoreset", "fly", "unfly", "unaimlock", "noclip", "clip", "infstam", "uninfstam", "fullzoom", "unfullzoom", "rejoin", "camlock ", "view ", "unview", "tpwalk ", "fov on", "fov off", "esp ", "itemesp", "itemesp on", "itemesp off", "lastpos", "unlastpos", "noslow", "unnoslow", "reset" }
 
 local function GetAutocomplete(inputText)
     if not inputText or inputText == "" then return "" end
@@ -772,27 +1217,29 @@ local function GetAutocomplete(inputText)
     if cmdWithSpace then
         local rem = lowerInput:sub(#cmdWithSpace + 1)
         if rem ~= "" then
-            if cmdWithSpace == "aimlock " or cmdWithSpace == "camlock " or cmdWithSpace == "esp " then
+            if cmdWithSpace == "aimlock " or cmdWithSpace == "camlock " or cmdWithSpace == "esp " or cmdWithSpace == "view " then
                 for _, p in ipairs(Players:GetPlayers()) do
                     if p ~= LocalPlayer and (p.Name:lower():sub(1,#rem)==rem or p.DisplayName:lower():sub(1,#rem)==rem) then return cmdWithSpace .. p.Name:lower() end
                 end
             elseif cmdWithSpace == "get " then
-                for _, i in ipairs({"money", "grenade", "flash", "golf", "ar15", "molotov", "brick", "usas", "uzi"}) do if i:sub(1,#rem)==rem then return cmdWithSpace..i end end
+                for k in pairs(GET_ITEMS) do if k:sub(1,#rem)==rem then return cmdWithSpace..k end end
+            elseif cmdWithSpace == "itemesp " then
+                for _, opt in ipairs({"on", "off"}) do if opt:sub(1,#rem)==rem then return cmdWithSpace..opt end end
             end
         end
     end
     
-    local function IsValidToggle(str) for _, t in ipairs({"aimlock","autoreset","fly","noclip","infstam","camlock","tpwalk","fovvisible","keylock","reset"}) do if t == str then return true end end return false end
+    local function IsValidToggle(str) for _, t in ipairs({"aimlock","autoreset","fly","noclip","infstam","camlock","tpwalk","fovvisible","keylock","itemesp","reset"}) do if t == str then return true end end return false end
     
     local mBind = lowerInput:match("^bind%s+(%w+)%s+(%w*)$")
     if mBind then
         local key = lowerInput:match("^bind%s+(%w+)%s+"); local r = lowerInput:match("^bind%s+%w+%s+(%w*)$")
-        if r and not IsValidToggle(key) then for _, t in ipairs({"aimlock","autoreset","fly","noclip","infstam","camlock","tpwalk","fovvisible","keylock","reset"}) do if t:sub(1,#r)==r then return "bind "..key.." "..t end end end
+        if r and not IsValidToggle(key) then for _, t in ipairs({"aimlock","autoreset","fly","noclip","infstam","camlock","tpwalk","fovvisible","keylock","itemesp","reset"}) do if t:sub(1,#r)==r then return "bind "..key.." "..t end end end
     end
     local mUnb = lowerInput:match("^unbind%s+(%w+)%s+(%w*)$")
     if mUnb then
         local key = lowerInput:match("^unbind%s+(%w+)%s+"); local r = lowerInput:match("^unbind%s+%w+%s+(%w*)$")
-        if r and not IsValidToggle(key) then for _, t in ipairs({"aimlock","autoreset","fly","noclip","infstam","camlock","tpwalk","fovvisible","keylock","reset"}) do if t:sub(1,#r)==r then return "unbind "..key.." "..t end end end
+        if r and not IsValidToggle(key) then for _, t in ipairs({"aimlock","autoreset","fly","noclip","infstam","camlock","tpwalk","fovvisible","keylock","itemesp","reset"}) do if t:sub(1,#r)==r then return "unbind "..key.." "..t end end end
     end
     return bestMatch or ""
 end
@@ -806,15 +1253,17 @@ end
 local CMD_LIST = {
     { cmd = "bind {key} {cmd}", desc = "Bind command to key" }, { cmd = "unbind {key} {cmd}", desc = "Unbind command from key" },
     { cmd = "unbind all", desc = "Remove all keybinds" }, { cmd = "bindlist", desc = "View active binds gui" },
-    { cmd = "get {item}", desc = "Teleport to item (uzi, money, ar15...)" }, { cmd = "cmd", desc = "Open command list" },
-    { cmd = "chatenable", desc = "Enable chatspy/chat" }, { cmd = "aimlock {player}", desc = "Aimlocks chosen player" },
-    { cmd = "unaimlock", desc = "Turn off aimlock" }, { cmd = "camlock {player}", desc = "Camera locks onto player" },
-    { cmd = "autoreset", desc = "Auto reset at 10HP" }, { cmd = "fly / unfly", desc = "Toggle fly mode" },
-    { cmd = "noclip / clip", desc = "Toggle noclip" }, { cmd = "infstam / uninfstam", desc = "Toggle infinite stamina" },
-    { cmd = "rejoin", desc = "Rejoin server" }, { cmd = "tpwalk {1-150}", desc = "Enable tpwalk at speed" },
-    { cmd = "fov on / fov off", desc = "Toggle FOV visibility" }, { cmd = "esp {player} / all / off", desc = "ESP controls" },
-    { cmd = "lastpos / unlastpos", desc = "Toggle respawn teleport" }, { cmd = "noslow / unnoslow", desc = "Remove slow tags" },
-    { cmd = "reset", desc = "Reset character instantly" },
+    { cmd = "get {item}", desc = "Teleport to item (uzi, money, katana...)" }, { cmd = "getlist", desc = "Open items list gui" },
+    { cmd = "itemesp on / off", desc = "Toggle Item ESP on spawner items" }, { cmd = "view {player} / unview", desc = "Spectate player camera" },
+    { cmd = "fullzoom / unfullzoom", desc = "Infinite camera zoom out" },
+    { cmd = "cmd", desc = "Open command list" }, { cmd = "chatenable", desc = "Enable chatspy/chat" },
+    { cmd = "aimlock {player}", desc = "Aimlocks chosen player" }, { cmd = "unaimlock", desc = "Turn off aimlock" },
+    { cmd = "camlock {player}", desc = "Camera locks onto player" }, { cmd = "autoreset", desc = "Auto reset at 10HP" },
+    { cmd = "fly / unfly", desc = "Toggle fly mode" }, { cmd = "noclip / clip", desc = "Toggle noclip" },
+    { cmd = "infstam / uninfstam", desc = "Toggle infinite stamina" }, { cmd = "rejoin", desc = "Rejoin server" },
+    { cmd = "tpwalk {1-150}", desc = "Enable tpwalk at speed" }, { cmd = "fov on / fov off", desc = "Toggle FOV visibility" },
+    { cmd = "esp {player} / all / off", desc = "ESP controls" }, { cmd = "lastpos / unlastpos", desc = "Toggle respawn teleport" },
+    { cmd = "noslow / unnoslow", desc = "Remove slow tags" }, { cmd = "reset", desc = "Reset character instantly" },
 }
 UI.CmdPopup = Instance.new("Frame", UI.ScreenGui)
 UI.CmdPopup.Size = UDim2.new(0, 240, 0, 440); UI.CmdPopup.Position = UDim2.new(0.5, 140, 0.5, -220); UI.CmdPopup.BackgroundColor3 = Color3.fromRGB(22, 22, 22); UI.CmdPopup.BorderSizePixel = 0; UI.CmdPopup.Active = true; UI.CmdPopup.Visible = false; UI.CmdPopup.ClipsDescendants = true
@@ -856,7 +1305,7 @@ do
     Utils.Corner(UI.CmdBarFrame, 6); Utils.Stroke(UI.CmdBarFrame, Color3.fromRGB(60,60,60))
     local Prm = Instance.new("TextLabel", UI.CmdBarFrame); Prm.Size = UDim2.new(0,28,1,0); Prm.BackgroundTransparency = 1; Prm.Text = ":"; Prm.TextColor3 = Color3.fromRGB(0,180,255); Prm.TextSize = 16; Prm.Font = Enum.Font.GothamBold; Prm.ZIndex = 21
     UI.CmdBarShadow = Instance.new("TextLabel", UI.CmdBarFrame); UI.CmdBarShadow.Size = UDim2.new(1,-36,0,34); UI.CmdBarShadow.Position = UDim2.new(0,28,0.5,-17); UI.CmdBarShadow.BackgroundTransparency = 1; UI.CmdBarShadow.Text = ""; UI.CmdBarShadow.TextColor3 = Color3.fromRGB(120,120,120); UI.CmdBarShadow.TextSize = 13; UI.CmdBarShadow.Font = Enum.Font.Gotham; UI.CmdBarShadow.TextXAlignment = Enum.TextXAlignment.Left; UI.CmdBarShadow.ZIndex = 21; Utils.Pad(UI.CmdBarShadow, 0,0,0,8)
-    UI.CmdBarBox = Instance.new("TextBox", UI.CmdBarFrame); UI.CmdBarBox.Size = UDim2.new(1,-36,0,34); UI.CmdBarBox.Position = UDim2.new(0,28,0.5,-17); UI.CmdBarBox.BackgroundTransparency = 1; UI.CmdBarBox.PlaceholderText = "camlock / aimlock / esp {player}  | bind f aimlock"; UI.CmdBarBox.PlaceholderColor3 = Color3.fromRGB(100,100,100); UI.CmdBarBox.Text = ""; UI.CmdBarBox.TextColor3 = Color3.new(1,1,1); UI.CmdBarBox.TextSize = 13; UI.CmdBarBox.Font = Enum.Font.Gotham; UI.CmdBarBox.ClearTextOnFocus = false; UI.CmdBarBox.TextXAlignment = Enum.TextXAlignment.Left; UI.CmdBarBox.ZIndex = 22; Utils.Pad(UI.CmdBarBox, 0,0,0,8)
+    UI.CmdBarBox = Instance.new("TextBox", UI.CmdBarFrame); UI.CmdBarBox.Size = UDim2.new(1,-36,0,34); UI.CmdBarBox.Position = UDim2.new(0,28,0.5,-17); UI.CmdBarBox.BackgroundTransparency = 1; UI.CmdBarBox.PlaceholderText = "camlock / fullzoom / view {player} / itemesp on / getlist"; UI.CmdBarBox.PlaceholderColor3 = Color3.fromRGB(100,100,100); UI.CmdBarBox.Text = ""; UI.CmdBarBox.TextColor3 = Color3.new(1,1,1); UI.CmdBarBox.TextSize = 13; UI.CmdBarBox.Font = Enum.Font.Gotham; UI.CmdBarBox.ClearTextOnFocus = false; UI.CmdBarBox.TextXAlignment = Enum.TextXAlignment.Left; UI.CmdBarBox.ZIndex = 22; Utils.Pad(UI.CmdBarBox, 0,0,0,8)
     UI.MainCmdFeedback = Instance.new("TextLabel", UI.CmdBarFrame); UI.MainCmdFeedback.Size = UDim2.new(1,-16,0,18); UI.MainCmdFeedback.Position = UDim2.new(0,8,0,-20); UI.MainCmdFeedback.BackgroundTransparency = 1; UI.MainCmdFeedback.Text = ""; UI.MainCmdFeedback.TextColor3 = Color3.fromRGB(0,200,80); UI.MainCmdFeedback.TextSize = 11; UI.MainCmdFeedback.Font = Enum.Font.Gotham; UI.MainCmdFeedback.ZIndex = 21
 end
 
@@ -929,37 +1378,8 @@ ContextActionService:BindAction("ColonBind", function(a,s,i)
     if isCmdBarOpen then SlideCmdBarOut() else SlideCmdBarIn() end; return Enum.ContextActionResult.Sink
 end, false, Enum.KeyCode.Semicolon)
 
-local _lastNameAimlockTarget = nil
-local GET_ITEMS={
-    ["money"] ={mesh="rbxassetid://511726060",texture="rbxassetid://511726139"}, ["grenade"]={mesh="rbxassetid://436966955",texture="rbxassetid://436966973"},
-    ["flash"] ={mesh="rbxassetid://454819719",texture="rbxassetid://454819722"}, ["golf"] ={mesh="rbxassetid://441573384",texture="rbxassetid://441573394"},
-    ["ar15"] ={mesh="rbxassetid://137762422011047"}, ["molotov"]={mesh="rbxassetid://454823030",texture="rbxassetid://91135823000526"},
-    ["brick"] ={texture="rbxassetid://8236335288"}, ["usas"] ={texture="rbxassetid://97657374427072"}, ["uzi"]={texture="rbxassetid://4529712484"}
-}
-
-local function ResolveKeyCode(k)
-    if #k == 1 and k:match("^%a$") then return "KeyCode." .. k:upper() end
-    if k:match("^[fF]%d%d?$") then return "KeyCode." .. k:upper() end
-    local n = { 
-        ["space"]="Space", ["shift"]="LeftShift", ["lshift"]="LeftShift", ["rshift"]="RightShift", 
-        ["ctrl"]="LeftControl", ["lctrl"]="LeftControl", ["rctrl"]="RightControl", 
-        ["alt"]="LeftAlt", ["lalt"]="LeftAlt", ["ralt"]="RightAlt", 
-        ["enter"]="Return", ["return"]="Return", ["backspace"]="Backspace", 
-        ["num1"]="One", ["num2"]="Two", ["num3"]="Three", ["num4"]="Four", ["num5"]="Five", 
-        ["num6"]="Six", ["num7"]="Seven", ["num8"]="Eight", ["num9"]="Nine", ["num0"]="Zero",
-        ["1"]="One", ["2"]="Two", ["3"]="Three", ["4"]="Four", ["5"]="Five", 
-        ["6"]="Six", ["7"]="Seven", ["8"]="Eight", ["9"]="Nine", ["0"]="Zero",
-        ["tab"]="Tab", ["capslock"]="CapsLock", ["delete"]="Delete", ["insert"]="Insert",
-        ["home"]="Home", ["end"]="End", ["pageup"]="PageUp", ["pagedown"]="PageDown",
-        ["up"]="Up", ["down"]="Down", ["left"]="Left", ["right"]="Right"
-    }
-    return n[k:lower()] and ("KeyCode."..n[k:lower()]) or nil
-end
-
 local function FireToggle(name)
     if name == "keylock" then
-        -- MODIFIED: Search for a target within the FOV circle. 
-        -- If found, lock onto them. If NOT found, turn Keylock OFF.
         local t, sDist, mLoc = nil, Settings.FOV, UserInputService:GetMouseLocation()
         for _, p in pairs(Players:GetPlayers()) do
             if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild(Settings.Hitpart) and p.Character:FindFirstChildOfClass("Humanoid") and p.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
@@ -983,6 +1403,8 @@ local function FireToggle(name)
                 Notify("KeyLock", "🔴 No target found") 
             end
         end
+    elseif name == "itemesp" then
+        SetItemESPState(not ITEM_ESP_ENABLED)
     elseif name == "autoreset" then AUTO_RESET_ENABLED = not AUTO_RESET_ENABLED; Utils.SetBtnState(UI.AutoResetToggle, AUTO_RESET_ENABLED, "AutoReset: ON", "AutoReset (10HP): OFF"); Notify("Auto Reset", AUTO_RESET_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
     elseif name == "fly" then FLY_ENABLED = not FLY_ENABLED; Utils.SetBtnState(UI.FlyToggle, FLY_ENABLED, "Fly: ON", "Fly: OFF"); if FLY_ENABLED then StartFly() else StopFly() end; Notify("Fly", FLY_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
     elseif name == "noclip" then NOCLIP_ENABLED = not NOCLIP_ENABLED; Utils.SetBtnState(UI.NoclipToggle, NOCLIP_ENABLED, "Noclip: ON", "Noclip: OFF"); Notify("Noclip", NOCLIP_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
@@ -1002,6 +1424,7 @@ ParseCommand = function(inputStr)
 
     if cmd == "cmd" then UI.CmdPopup.Visible = true; F.TextColor3 = Color3.fromRGB(0, 200, 80); F.Text = "Opened command list" return end
     if cmd == "bindlist" then Utils.RefreshBindsList(); TweenService:Create(UI.BindsFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, -250, 0, 0)}):Play(); F.TextColor3 = Color3.fromRGB(0, 220, 80); F.Text = "Opened bind list" return end
+    if cmd == "getlist" or cmd == "items" then TweenService:Create(UI.ItemsFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, -250, 0, 0)}):Play(); F.TextColor3 = Color3.fromRGB(0, 220, 80); F.Text = "Opened items list" return end
     if cmd == "rejoin" then F.TextColor3 = Color3.fromRGB(255, 180, 0); F.Text = "Rejoining server..."; task.wait(0.5); pcall(function() game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end) return end
     
     if cmd == "bind" then
@@ -1055,6 +1478,53 @@ ParseCommand = function(inputStr)
         return
     end
 
+    if cmd == "view" then
+        if #pts >= 2 then
+            local q = pts[2]:lower()
+            local t = nil
+            for _, p in pairs(Players:GetPlayers()) do
+                if p ~= LocalPlayer and (p.Name:lower():find(q, 1, true) or p.DisplayName:lower():find(q, 1, true)) then
+                    t = p; break
+                end
+            end
+            if t then
+                VIEW_TARGET = t
+                if t.Character and t.Character:FindFirstChildOfClass("Humanoid") then
+                    Camera.CameraSubject = t.Character:FindFirstChildOfClass("Humanoid")
+                end
+                F.TextColor3 = Color3.fromRGB(0, 220, 80); F.Text = "Viewing " .. t.Name; Notify("View", "👁️ Viewing " .. t.Name)
+            else
+                F.TextColor3 = Color3.fromRGB(255, 80, 80); F.Text = "Player not found: " .. pts[2]
+            end
+        else F.TextColor3 = Color3.fromRGB(255, 80, 80); F.Text = "Usage: view {player}" end
+        return
+    end
+
+    if cmd == "unview" then
+        VIEW_TARGET = nil
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+            Camera.CameraSubject = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        end
+        F.TextColor3 = Color3.fromRGB(255, 180, 0); F.Text = "View cleared"; Notify("View", "🔴 Stopped viewing")
+        return
+    end
+
+    if cmd == "fullzoom" then
+        FULLZOOM_ENABLED = true
+        LocalPlayer.CameraMaxZoomDistance = 99999
+        F.TextColor3 = Color3.fromRGB(0, 220, 80); F.Text = "Infinite zoom enabled"
+        Notify("Full Zoom", "🟢 Max zoom set to 99,999")
+        return
+    end
+
+    if cmd == "unfullzoom" then
+        FULLZOOM_ENABLED = false
+        LocalPlayer.CameraMaxZoomDistance = 128
+        F.TextColor3 = Color3.fromRGB(255, 180, 0); F.Text = "Default zoom restored"
+        Notify("Full Zoom", "🔴 Max zoom restored to 128")
+        return
+    end
+
     if cmd == "aimlock" then
         if #pts >= 2 then
             local t = (function() local q=pts[2]:lower() for _,p in pairs(Players:GetPlayers()) do if p~=LocalPlayer and (p.Name:lower()==q or p.DisplayName:lower()==q or p.Name:lower():find(q,1,true) or p.DisplayName:lower():find(q,1,true)) then return p end end return nil end)()
@@ -1088,6 +1558,14 @@ ParseCommand = function(inputStr)
                 else F.TextColor3 = Color3.fromRGB(255,80,80); F.Text = "Player not found: " .. pts[2] end
             end
         else F.TextColor3 = Color3.fromRGB(200,200,200); F.Text = "Usage: esp {player} | esp all | esp off" end
+        return
+    end
+
+    if cmd == "itemesp" then
+        local arg = pts[2] and pts[2]:lower()
+        if arg == "on" or arg == "true" or arg == "1" then SetItemESPState(true)
+        elseif arg == "off" or arg == "false" or arg == "0" or arg == "clear" then SetItemESPState(false)
+        else SetItemESPState(not ITEM_ESP_ENABLED) end
         return
     end
 
@@ -1141,46 +1619,9 @@ ParseCommand = function(inputStr)
 
     if cmd == "get" then
         if #pts < 2 then F.TextColor3 = Color3.fromRGB(255, 80, 80); F.Text = "Usage: get {item}" return end
-        local itemKey=pts[2]:lower(); local iDef=GET_ITEMS[itemKey]
-        if iDef then
-            local function nId(s) return tostring(s):lower():gsub("%s+","") end
-            local function mI(o) local c=o.ClassName;local m=iDef.mesh and nId(iDef.mesh);local t=iDef.texture and nId(iDef.texture); if c=="SpecialMesh" or c=="FileMesh" or c=="MeshPart" then return (m and nId(o.MeshId)==m) or (t and nId(o.TextureId)==t) elseif c=="Texture" or c=="Decal" then return t and nId(o.Texture)==t end;return false end
-            F.TextColor3=Color3.fromRGB(255,215,0); F.Text="🔍 Scanning for "..itemKey.."..."
-            Notify("Get","🔍 "..itemKey)
-            task.spawn(function()
-                local fd,sn={},{}
-                for i,o in ipairs(workspace:GetDescendants()) do
-                    if i%200==0 then task.wait() end
-                    local ok,h=pcall(mI,o)
-                    if ok and h then local a=o.Parent; while a and a~=workspace do if a:IsA("Model") then break end;a=a.Parent end; local tg=(a and a~=workspace and a:IsA("Model")) and a or (o:IsA("BasePart") and o) or (o.Parent and o.Parent:IsA("BasePart") and o.Parent); if tg and not sn[tg] then sn[tg]=true;table.insert(fd,tg) end end
-                end
-                if #fd==0 then F.TextColor3=Color3.fromRGB(255,80,80);F.Text="No "..itemKey.." found";Notify("Get","❌ Not found");return end
-                local hn=LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart");local cl=fd[1]
-                if hn and #fd>1 then for _,m in ipairs(fd) do local p; if m:IsA("Model") then p=m.PrimaryPart and m.PrimaryPart.Position;if not p then for _,v in pairs(m:GetDescendants()) do if v:IsA("BasePart") then p=v.Position;break end end end elseif m:IsA("BasePart") then p=m.Position end; if p then local d=(p-hn.Position).Magnitude;if d > 0.01 then hn.CFrame=CFrame.lookAt(hn.Position,p) end end end end
-                local tp;if cl:IsA("Model") then tp=cl.PrimaryPart and cl.PrimaryPart.Position; if not tp then for _,v in pairs(cl:GetDescendants()) do if v:IsA("BasePart") then tp=v.Position;break end end end elseif cl:IsA("BasePart") then tp=cl.Position end
-                if not tp then F.TextColor3=Color3.fromRGB(255,80,80);F.Text="No position";return end
-                if tp.Y < -50 then F.TextColor3=Color3.fromRGB(255,140,0);F.Text="⚠️ "..itemKey.." appears to be in the void";return end
-                local ch=LocalPlayer.Character;local hr=ch and ch:FindFirstChild("HumanoidRootPart")
-                if not hr then F.TextColor3=Color3.fromRGB(255,80,80);F.Text="No HRP";return end
-
-                local _wasNoclip = NOCLIP_ENABLED; NOCLIP_ENABLED = true
-                local dY = (tp.Y - hr.Position.Y); local steps = math.max(1, math.floor(math.abs(dY)/12))
-                for i=1,steps do if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return end; hr.CFrame = hr.CFrame + Vector3.new(0, dY/steps, 0); task.wait(0.04) end
-
-                local startPos = hr.Position; local path = tp - startPos; local dist = path.Magnitude; local stepCount = math.max(1, math.floor(dist / (140 * 0.03)))
-                for i=1,stepCount do if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return end; hr.CFrame = CFrame.new(startPos + (path * (i/stepCount))); task.wait(0.03) end
-                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then hr.CFrame = CFrame.new(tp + Vector3.new(0, 3, 0)) end
-                task.wait(0.2)
-
-                local prompt = cl:FindFirstChildWhichIsA("ProximityPrompt", true)
-                if prompt then pcall(function() prompt.MaxActivationDistance = 999; prompt.HoldDuration = 0; prompt.RequiresLineOfSight = false; prompt:InputHoldBegin(); task.wait(); prompt:InputHoldEnd() end) end
-                task.wait(0.1)
-
-                if not _wasNoclip then NOCLIP_ENABLED = false; Utils.SetBtnState(UI.NoclipToggle, false, "Noclip: ON", "Noclip: OFF") end
-                F.TextColor3=Color3.fromRGB(0,220,80);F.Text="✅ Arrived at "..itemKey.."!"; Notify("Get","✅ "..itemKey)
-            end); return
-        end
-        F.TextColor3 = Color3.fromRGB(255, 80, 80); F.Text = "Unknown item: " .. itemKey .. " (try: uzi)" return
+        local itemKey = pts[2]:lower()
+        GetItem(itemKey)
+        return
     end
 
     F.TextColor3 = Color3.fromRGB(255, 80, 80); F.Text = "Unknown command: " .. cmd .. " (try: cmd)"
@@ -1207,7 +1648,7 @@ end)
 local function clearFb(fb, tVar) task.spawn(function() while true do task.wait(1); if fb.Text ~= "" then tVar = tVar + 1; if tVar >= 4 then fb.Text = ""; tVar = 0 end else tVar = 0 end end end) end
 clearFb(UI.MainCmdFeedback, 0); clearFb(UI.SideCmdFeedback, 0)
 
--- // ESP LOOP
+-- // PLAYER ESP LOOP
 local function ShouldESP(p) return p ~= LocalPlayer and (ESP_All or ESP_Players[p] == true) end
 task.spawn(function()
     while true do
@@ -1227,6 +1668,91 @@ task.spawn(function()
                     for _, v in pairs(p.Character:GetChildren()) do if v.Name == "SlaxrFullESP" then v:Destroy() end end
                     local nt = p.Character:FindFirstChild("SlaxrNametag", true); if nt then nt:Destroy() end
                 end
+            end
+        end
+    end
+end)
+
+-- // ITEM ESP LOOP (Workspace Scanner - Spawner Items Only)
+local ActiveItemESPHighlights = {}
+
+ClearAllItemESP = function()
+    for tg, data in pairs(ActiveItemESPHighlights) do
+        pcall(function()
+            if data.highlight then data.highlight:Destroy() end
+            if data.billboard then data.billboard:Destroy() end
+        end)
+    end
+    ActiveItemESPHighlights = {}
+end
+
+task.spawn(function()
+    while true do
+        task.wait(2.5)
+        if ITEM_ESP_ENABLED then
+            local currentFound = {}
+            local ok, desc = pcall(function() return workspace:GetDescendants() end)
+            if ok and desc then
+                for i, o in ipairs(desc) do
+                    if i % 150 == 0 then task.wait() end
+                    if not ITEM_ESP_ENABLED then break end
+                    
+                    local itemKey = IdentifyObjectItem(o)
+                    if itemKey and not IsItemHeldByPlayer(o) then
+                        local tg = GetTopItemModel(o)
+                        if tg then
+                            currentFound[tg] = itemKey
+                        end
+                    end
+                end
+            end
+            
+            if ITEM_ESP_ENABLED then
+                for tg, itemKey in pairs(currentFound) do
+                    if tg and pcall(function() return tg.Parent end) and not ActiveItemESPHighlights[tg] then
+                        local h = Instance.new("Highlight")
+                        h.Name = "SlaxrItemESP"; h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                        h.FillTransparency = 0.4; h.OutlineTransparency = 0
+                        h.OutlineColor = Color3.fromRGB(255, 215, 0); h.FillColor = Color3.fromRGB(255, 170, 0)
+                        pcall(function() h.Parent = tg end)
+                        
+                        local targetPart = nil
+                        pcall(function()
+                            targetPart = tg:IsA("Model") and (tg.PrimaryPart or tg:FindFirstChildWhichIsA("BasePart")) or (tg:IsA("BasePart") and tg)
+                            if not targetPart and tg:IsA("Model") then
+                                for _, v in pairs(tg:GetDescendants()) do if v:IsA("BasePart") then targetPart = v; break end end
+                            end
+                        end)
+                        
+                        local bg = nil
+                        if targetPart then
+                            bg = Instance.new("BillboardGui")
+                            bg.Name = "SlaxrItemNametag"; bg.Size = UDim2.new(0, 150, 0, 40)
+                            bg.StudsOffset = Vector3.new(0, 2, 0); bg.AlwaysOnTop = true
+                            local itemDisplayName = GET_ITEMS[itemKey] and GET_ITEMS[itemKey].name or itemKey:upper()
+                            local lbl = Instance.new("TextLabel", bg)
+                            lbl.Size = UDim2.new(1,0,1,0); lbl.BackgroundTransparency = 1; lbl.Text = "📦 " .. itemDisplayName; lbl.TextColor3 = Color3.fromRGB(255, 215, 0)
+                            lbl.TextStrokeTransparency = 0.3; lbl.TextStrokeColor3 = Color3.new(0,0,0)
+                            lbl.Font = Enum.Font.SourceSansBold; lbl.TextSize = 14
+                            pcall(function() bg.Parent = targetPart end)
+                        end
+                        ActiveItemESPHighlights[tg] = { highlight = h, billboard = bg }
+                    end
+                end
+                
+                for tg, data in pairs(ActiveItemESPHighlights) do
+                    if not currentFound[tg] or not pcall(function() return tg.Parent end) then
+                        pcall(function()
+                            if data.highlight then data.highlight:Destroy() end
+                            if data.billboard then data.billboard:Destroy() end
+                        end)
+                        ActiveItemESPHighlights[tg] = nil
+                    end
+                end
+            end
+        else
+            if next(ActiveItemESPHighlights) ~= nil then
+                ClearAllItemESP()
             end
         end
     end

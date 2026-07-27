@@ -45,6 +45,10 @@ getgenv().TPWALK_SPEED = 15
 local Camera = workspace.CurrentCamera
 local Binds = {}
 
+local LOSER_IDS_ARRAY = {57372642, 1198303867, 90384746, 141968373, 80517733}
+local LOSER_DICT = {}
+for _, id in ipairs(LOSER_IDS_ARRAY) do LOSER_DICT[id] = true end
+
 local BULLET_TRAILS_ENABLED = false
 local APPLY_TO_EVERYONE = false
 local BulletColour = ColorSequence.new(Color3.fromRGB(255, 255, 255))
@@ -747,6 +751,42 @@ local function ApplyInfStam(char)
     end)
 end
 
+local flyConnection = nil
+local savedWalkSpeed, savedJumpPower = 16, 50
+local function StopFly()
+    if flyConnection then flyConnection:Disconnect() flyConnection = nil end
+    local c = LocalPlayer.Character
+    if c then
+        local hrp = c:FindFirstChild("HumanoidRootPart")
+        if hrp then local bv, bg = hrp:FindFirstChild("SlaxFlyBV"), hrp:FindFirstChild("SlaxFlyBG"); if bv then bv:Destroy() end; if bg then bg:Destroy() end end
+        local hum = c:FindFirstChildOfClass("Humanoid"); if hum then hum.PlatformStand = false; hum.WalkSpeed = savedWalkSpeed; hum.JumpPower = savedJumpPower; hum:ChangeState(Enum.HumanoidStateType.Running) end
+    end
+end
+
+local function StartFly()
+    StopFly()
+    local c = LocalPlayer.Character; if not c then return end
+    local hrp, hum = c:FindFirstChild("HumanoidRootPart"), c:FindFirstChildOfClass("Humanoid")
+    if not hrp then return end
+    if hum then savedWalkSpeed = hum.WalkSpeed; savedJumpPower = hum.JumpPower; hum.PlatformStand = true end
+    local bv, bg = Instance.new("BodyVelocity", hrp), Instance.new("BodyGyro", hrp)
+    bv.Name = "SlaxFlyBV"; bv.MaxForce = Vector3.new(9e9, 9e9, 9e9); bv.Velocity = Vector3.new(0,0,0)
+    bg.Name = "SlaxFlyBG"; bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9); bg.CFrame = Camera.CFrame
+    flyConnection = RunService.RenderStepped:Connect(function()
+        if not LocalPlayer.Character then return end
+        local r = LocalPlayer.Character:FindFirstChild("HumanoidRootPart"); if not r or not r:FindFirstChild("SlaxFlyBG") then return end
+        r.SlaxFlyBG.CFrame = Camera.CFrame
+        local dir = Vector3.new(0,0,0)
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + Camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - Camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - Camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + Camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0,1,0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then dir = dir - Vector3.new(0,1,0) end
+        r.SlaxFlyBV.Velocity = dir.Magnitude > 0 and (dir.Unit * math.min(FLY_SPEED, 150)) or Vector3.new(0,0,0)
+    end)
+end
+
 -- -----------------------------------------------------
 -- // MAIN UI ASSEMBLY
 -- -----------------------------------------------------
@@ -793,14 +833,14 @@ end
 
 -- Items List Slide-Out GUI
 UI.ItemsFrame = Instance.new("Frame", UI.Container)
-UI.ItemsFrame.Size = UDim2.new(1,0,1,0); UI.ItemsFrame.BackgroundColor3 = Color3.fromRGB(22,22,22); UI.ItemsFrame.BorderSizePixel = 0; UI.ItemsFrame.ZIndex = 6; UI.ItemsFrame.ClipsDescendants = true
+UI.ItemsFrame.Size = UDim2.new(1,0,1,0); UI.ItemsFrame.BackgroundColor3 = Color3.fromRGB(22,22,22); UI.ItemsFrame.BorderSizePixel = 0; UI.ItemsFrame.ZIndex = 6; UI.ItemsFrame.ClipsDescendants = true; UI.ItemsFrame.Visible = false
 do
     Utils.Corner(UI.ItemsFrame); Utils.Stroke(UI.ItemsFrame)
     local Title = Instance.new("TextLabel", UI.ItemsFrame)
     Title.Size = UDim2.new(1,0,0,30); Title.BackgroundColor3 = Color3.fromRGB(15,15,15); Title.Text = "  📦 GET ITEMS LIST"; Title.TextColor3 = Color3.fromRGB(0,180,255); Title.TextXAlignment = Enum.TextXAlignment.Left; Title.TextSize = 13; Title.Font = Enum.Font.GothamBold
     local line = Instance.new("Frame", Title); line.Size = UDim2.new(1,0,0,1); line.Position = UDim2.new(0,0,1,0); line.BackgroundColor3 = Color3.fromRGB(45,45,45); line.BorderSizePixel = 0
     local CBtn = Instance.new("TextButton", Title); CBtn.Size = UDim2.new(0,30,0,30); CBtn.Position = UDim2.new(1,-30,0,0); CBtn.BackgroundTransparency = 1; CBtn.Text = "X"; CBtn.TextColor3 = Color3.fromRGB(180,50,50); CBtn.Font = Enum.Font.GothamBold; CBtn.TextSize = 14
-    CBtn.MouseButton1Click:Connect(function() TweenService:Create(UI.ItemsFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0,0,0,0)}):Play() end)
+    CBtn.MouseButton1Click:Connect(function() local t = TweenService:Create(UI.ItemsFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0,0,0,0)}); t:Play(); t.Completed:Connect(function() UI.ItemsFrame.Visible = false end) end)
     task.spawn(function() while true do Title.TextColor3 = Color3.fromHSV((tick()%5)/5,1,1); task.wait() end end)
     
     local IContent = Instance.new("ScrollingFrame", UI.ItemsFrame)
@@ -833,14 +873,14 @@ end
 
 -- Binds Slide-Out
 UI.BindsFrame = Instance.new("Frame", UI.Container)
-UI.BindsFrame.Size = UDim2.new(1,0,1,0); UI.BindsFrame.BackgroundColor3 = Color3.fromRGB(22,22,22); UI.BindsFrame.BorderSizePixel = 0; UI.BindsFrame.ZIndex = 4; UI.BindsFrame.ClipsDescendants = true
+UI.BindsFrame.Size = UDim2.new(1,0,1,0); UI.BindsFrame.BackgroundColor3 = Color3.fromRGB(22,22,22); UI.BindsFrame.BorderSizePixel = 0; UI.BindsFrame.ZIndex = 4; UI.BindsFrame.ClipsDescendants = true; UI.BindsFrame.Visible = false
 do
     Utils.Corner(UI.BindsFrame); Utils.Stroke(UI.BindsFrame)
     local Title = Instance.new("TextLabel", UI.BindsFrame)
     Title.Size = UDim2.new(1,0,0,30); Title.BackgroundColor3 = Color3.fromRGB(15,15,15); Title.Text = "  ⌨️ ACTIVE BINDS"; Title.TextColor3 = Color3.fromRGB(0,180,255); Title.TextXAlignment = Enum.TextXAlignment.Left; Title.TextSize = 13; Title.Font = Enum.Font.GothamBold
     local line = Instance.new("Frame", Title); line.Size = UDim2.new(1,0,0,1); line.Position = UDim2.new(0,0,1,0); line.BackgroundColor3 = Color3.fromRGB(45,45,45); line.BorderSizePixel = 0
     local CBtn = Instance.new("TextButton", Title); CBtn.Size = UDim2.new(0,30,0,30); CBtn.Position = UDim2.new(1,-30,0,0); CBtn.BackgroundTransparency = 1; CBtn.Text = "X"; CBtn.TextColor3 = Color3.fromRGB(180,50,50); CBtn.Font = Enum.Font.GothamBold; CBtn.TextSize = 14
-    CBtn.MouseButton1Click:Connect(function() TweenService:Create(UI.BindsFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0,0,0,0)}):Play() end)
+    CBtn.MouseButton1Click:Connect(function() local t = TweenService:Create(UI.BindsFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0,0,0,0)}); t:Play(); t.Completed:Connect(function() UI.BindsFrame.Visible = false end) end)
     task.spawn(function() while true do Title.TextColor3 = Color3.fromHSV((tick()%5)/5,1,1); task.wait() end end)
     
     UI.BindsScroll = Instance.new("ScrollingFrame", UI.BindsFrame)
@@ -912,6 +952,73 @@ do
     end)
     Utils.CreateSlider(BContent, bn(), "Lifetime (s)", 0.05, 3.0, TrailTime, 2, function(v) TrailTime = v; if BULLET_TRAILS_ENABLED then UpdateActiveBullets() end; SaveConfig() end)
     Utils.CreateSlider(BContent, bn(), "Opacity", 0.0, 1.0, BulletTransparency, 2, function(v) BulletTransparency = v; if BULLET_TRAILS_ENABLED then UpdateActiveBullets() end; SaveConfig() end)
+end
+
+-- Loser List Slide-Out
+UI.LoserFrame = Instance.new("Frame", UI.Container)
+UI.LoserFrame.Size = UDim2.new(1,0,1,0); UI.LoserFrame.BackgroundColor3 = Color3.fromRGB(22,22,22); UI.LoserFrame.BorderSizePixel = 0; UI.LoserFrame.ZIndex = 5; UI.LoserFrame.ClipsDescendants = true; UI.LoserFrame.Visible = false
+do
+    Utils.Corner(UI.LoserFrame); Utils.Stroke(UI.LoserFrame)
+    local Title = Instance.new("TextLabel", UI.LoserFrame)
+    Title.Size = UDim2.new(1,0,0,30); Title.BackgroundColor3 = Color3.fromRGB(15,15,15); Title.Text = "  ⚠️ LOSER LIST"; Title.TextColor3 = Color3.fromRGB(255,80,80); Title.TextXAlignment = Enum.TextXAlignment.Left; Title.TextSize = 13; Title.Font = Enum.Font.GothamBold
+    local line = Instance.new("Frame", Title); line.Size = UDim2.new(1,0,0,1); line.Position = UDim2.new(0,0,1,0); line.BackgroundColor3 = Color3.fromRGB(45,45,45); line.BorderSizePixel = 0
+    local CBtn = Instance.new("TextButton", Title); CBtn.Size = UDim2.new(0,30,0,30); CBtn.Position = UDim2.new(1,-30,0,0); CBtn.BackgroundTransparency = 1; CBtn.Text = "X"; CBtn.TextColor3 = Color3.fromRGB(180,50,50); CBtn.Font = Enum.Font.GothamBold; CBtn.TextSize = 14
+    CBtn.MouseButton1Click:Connect(function() local t = TweenService:Create(UI.LoserFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0,0,0,0)}); t:Play(); t.Completed:Connect(function() UI.LoserFrame.Visible = false end) end)
+    task.spawn(function() while true do Title.TextColor3 = Color3.fromHSV((tick()%5)/5,1,1); task.wait() end end)
+    
+    UI.LoserContent = Instance.new("ScrollingFrame", UI.LoserFrame)
+    UI.LoserContent.Size = UDim2.new(1,0,1,-30); UI.LoserContent.Position = UDim2.new(0,0,0,30); UI.LoserContent.BackgroundTransparency = 1; UI.LoserContent.BorderSizePixel = 0; UI.LoserContent.ScrollBarThickness = 4
+    Utils.Pad(UI.LoserContent, 8,8,0,0)
+    local layout = Instance.new("UIListLayout", UI.LoserContent); layout.SortOrder = Enum.SortOrder.LayoutOrder; layout.Padding = UDim.new(0,6); layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() UI.LoserContent.CanvasSize = UDim2.new(0,0,0,layout.AbsoluteContentSize.Y + 16) end)
+
+    local function PopulateLoserList()
+        for _, c in pairs(UI.LoserContent:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
+        task.spawn(function()
+            local ok, info = pcall(function() return game:GetService("UserService"):GetUserInfosByUserIdsAsync(LOSER_IDS_ARRAY) end)
+            if not ok or not info then return end
+            for i, user in ipairs(info) do
+                local row = Instance.new("Frame", UI.LoserContent)
+                row.Size = UDim2.new(1, -16, 0, 42)
+                row.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+                row.BorderSizePixel = 0
+                row.LayoutOrder = i
+                Utils.Corner(row, 4); Utils.Stroke(row, Color3.fromRGB(60, 60, 60))
+                
+                local img = Instance.new("ImageLabel", row)
+                img.Size = UDim2.new(0, 30, 0, 30)
+                img.Position = UDim2.new(0, 5, 0.5, -15)
+                img.BackgroundTransparency = 1
+                Utils.Corner(img, 15)
+                
+                task.spawn(function()
+                    local content, isReady = Players:GetUserThumbnailAsync(user.Id, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+                    if isReady then img.Image = content end
+                end)
+                
+                local dName = Instance.new("TextLabel", row)
+                dName.Size = UDim2.new(1, -45, 0, 16)
+                dName.Position = UDim2.new(0, 40, 0, 4)
+                dName.BackgroundTransparency = 1
+                dName.Text = user.DisplayName
+                dName.TextColor3 = Color3.fromRGB(220, 220, 220)
+                dName.Font = Enum.Font.GothamBold
+                dName.TextSize = 12
+                dName.TextXAlignment = Enum.TextXAlignment.Left
+                
+                local uName = Instance.new("TextLabel", row)
+                uName.Size = UDim2.new(1, -45, 0, 14)
+                uName.Position = UDim2.new(0, 40, 0, 20)
+                uName.BackgroundTransparency = 1
+                uName.Text = "@" .. user.Username
+                uName.TextColor3 = Color3.fromRGB(150, 150, 150)
+                uName.Font = Enum.Font.Gotham
+                uName.TextSize = 10
+                uName.TextXAlignment = Enum.TextXAlignment.Left
+            end
+        end)
+    end
+    PopulateLoserList()
 end
 
 -- Item ESP State Toggle Handler
@@ -1164,42 +1271,6 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
-local flyConnection = nil
-local savedWalkSpeed, savedJumpPower = 16, 50
-local function StopFly()
-    if flyConnection then flyConnection:Disconnect() flyConnection = nil end
-    local c = LocalPlayer.Character
-    if c then
-        local hrp = c:FindFirstChild("HumanoidRootPart")
-        if hrp then local bv, bg = hrp:FindFirstChild("SlaxFlyBV"), hrp:FindFirstChild("SlaxFlyBG"); if bv then bv:Destroy() end; if bg then bg:Destroy() end end
-        local hum = c:FindFirstChildOfClass("Humanoid"); if hum then hum.PlatformStand = false; hum.WalkSpeed = savedWalkSpeed; hum.JumpPower = savedJumpPower; hum:ChangeState(Enum.HumanoidStateType.Running) end
-    end
-end
-
-local function StartFly()
-    StopFly()
-    local c = LocalPlayer.Character; if not c then return end
-    local hrp, hum = c:FindFirstChild("HumanoidRootPart"), c:FindFirstChildOfClass("Humanoid")
-    if not hrp then return end
-    if hum then savedWalkSpeed = hum.WalkSpeed; savedJumpPower = hum.JumpPower; hum.PlatformStand = true end
-    local bv, bg = Instance.new("BodyVelocity", hrp), Instance.new("BodyGyro", hrp)
-    bv.Name = "SlaxFlyBV"; bv.MaxForce = Vector3.new(9e9, 9e9, 9e9); bv.Velocity = Vector3.new(0,0,0)
-    bg.Name = "SlaxFlyBG"; bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9); bg.CFrame = Camera.CFrame
-    flyConnection = RunService.RenderStepped:Connect(function()
-        if not LocalPlayer.Character then return end
-        local r = LocalPlayer.Character:FindFirstChild("HumanoidRootPart"); if not r or not r:FindFirstChild("SlaxFlyBG") then return end
-        r.SlaxFlyBG.CFrame = Camera.CFrame
-        local dir = Vector3.new(0,0,0)
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + Camera.CFrame.LookVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - Camera.CFrame.LookVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - Camera.CFrame.RightVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + Camera.CFrame.RightVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0,1,0) end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then dir = dir - Vector3.new(0,1,0) end
-        r.SlaxFlyBV.Velocity = dir.Magnitude > 0 and (dir.Unit * math.min(FLY_SPEED, 150)) or Vector3.new(0,0,0)
-    end)
-end
-
 RunService.Stepped:Connect(function()
     if NOCLIP_ENABLED and LocalPlayer.Character then for _, p in pairs(LocalPlayer.Character:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = false end end end
 end)
@@ -1254,7 +1325,7 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- // COMMAND ENGINE & SMART AUTOCOMPLETE
-local AUTOCOMPLETE_COMMANDS = { "bind ", "unbind ", "unbind all", "bindlist", "get ", "getlist", "items", "cmd", "chatenable", "aimlock ", "autoreset", "fly", "unfly", "unaimlock", "noclip", "clip", "infstam", "uninfstam", "fullzoom", "unfullzoom", "rejoin", "camlock ", "view ", "unview", "tpwalk ", "fov on", "fov off", "esp ", "itemesp", "itemesp on", "itemesp off", "lastpos", "unlastpos", "noslow", "unnoslow", "reset" }
+local AUTOCOMPLETE_COMMANDS = { "bind ", "unbind ", "unbind all", "bindlist", "loserlist", "get ", "getlist", "items", "cmd", "chatenable", "aimlock ", "autoreset", "fly", "unfly", "unaimlock", "noclip", "clip", "infstam", "uninfstam", "fullzoom", "unfullzoom", "rejoin", "camlock ", "view ", "unview", "tpwalk ", "fov on", "fov off", "esp ", "itemesp", "itemesp on", "itemesp off", "lastpos", "unlastpos", "noslow", "unnoslow", "reset" }
 
 local function GetAutocomplete(inputText)
     if not inputText or inputText == "" then return "" end
@@ -1312,6 +1383,7 @@ local CMD_LIST = {
     { cmd = "tpwalk {1-150}", desc = "Enable tpwalk at speed" }, { cmd = "fov on / fov off", desc = "Toggle FOV visibility" },
     { cmd = "esp {player} / all / off", desc = "ESP controls" }, { cmd = "lastpos / unlastpos", desc = "Toggle respawn teleport" },
     { cmd = "noslow / unnoslow", desc = "Remove slow tags" }, { cmd = "reset", desc = "Reset character instantly" },
+    { cmd = "loserlist", desc = "Open loser list gui" },
 }
 UI.CmdPopup = Instance.new("Frame", UI.ScreenGui)
 UI.CmdPopup.Size = UDim2.new(0, 240, 0, 440); UI.CmdPopup.Position = UDim2.new(0.5, 140, 0.5, -220); UI.CmdPopup.BackgroundColor3 = Color3.fromRGB(22, 22, 22); UI.CmdPopup.BorderSizePixel = 0; UI.CmdPopup.Active = true; UI.CmdPopup.Visible = false; UI.CmdPopup.ClipsDescendants = true
@@ -1340,6 +1412,61 @@ do
         local cLbl = Instance.new("TextLabel", r); cLbl.Size = UDim2.new(1,-12,0,16); cLbl.Position = UDim2.new(0,6,0,2); cLbl.BackgroundTransparency = 1; cLbl.Text = inf.cmd; cLbl.TextColor3 = Color3.fromRGB(220,220,220); cLbl.TextSize = 12; cLbl.Font = Enum.Font.GothamBold; cLbl.TextXAlignment = Enum.TextXAlignment.Left
         local dLbl = Instance.new("TextLabel", r); dLbl.Size = UDim2.new(1,-12,0,14); dLbl.Position = UDim2.new(0,6,0,20); dLbl.BackgroundTransparency = 1; dLbl.Text = inf.desc; dLbl.TextColor3 = Color3.fromRGB(150,150,150); dLbl.TextSize = 10; dLbl.Font = Enum.Font.Gotham; dLbl.TextXAlignment = Enum.TextXAlignment.Left
     end
+end
+
+-- Loser Warning Notification System
+local ActiveWarnings = {}
+
+local function ShowLoserWarning(playerName)
+    local popup = Instance.new("Frame", UI.ScreenGui)
+    popup.Size = UDim2.new(0, 260, 0, 110)
+    popup.BackgroundColor3 = Color3.fromRGB(150, 30, 30)
+    popup.BackgroundTransparency = 0.3
+    popup.BorderSizePixel = 0
+    popup.ZIndex = 100
+    
+    Utils.Corner(popup); Utils.Stroke(popup, Color3.fromRGB(255, 80, 80), 2)
+    local Top = Instance.new("Frame", popup); Top.Size = UDim2.new(1, 0, 0, 26); Top.BackgroundColor3 = Color3.fromRGB(80, 15, 15); Top.BackgroundTransparency = 0.3; Top.BorderSizePixel = 0; Utils.Corner(Top)
+    local Title = Instance.new("TextLabel", Top); Title.Size = UDim2.new(1, 0, 1, 0); Title.BackgroundTransparency = 1; Title.Text = " LOSER JOINED"; Title.TextColor3 = Color3.fromRGB(255, 200, 200); Title.Font = Enum.Font.GothamBold; Title.TextSize = 12
+    local Icon = Instance.new("ImageLabel", popup); Icon.Size = UDim2.new(0, 40, 0, 40); Icon.Position = UDim2.new(0, 15, 0, 35); Icon.BackgroundTransparency = 1; Icon.Image = "rbxassetid://6525485104"
+    local WarningText = Instance.new("TextLabel", popup); WarningText.Size = UDim2.new(1, -75, 0, 40); WarningText.Position = UDim2.new(0, 65, 0, 35); WarningText.BackgroundTransparency = 1; WarningText.Text = playerName .. " joined and might ban you."; WarningText.TextColor3 = Color3.fromRGB(255, 255, 255); WarningText.Font = Enum.Font.GothamSemibold; WarningText.TextSize = 12; WarningText.TextWrapped = true; WarningText.TextXAlignment = Enum.TextXAlignment.Left
+    local OkBtn = Instance.new("TextButton", popup); OkBtn.Size = UDim2.new(0, 80, 0, 24); OkBtn.Position = UDim2.new(0.5, -40, 1, -30); OkBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50); OkBtn.BorderSizePixel = 0; OkBtn.Text = "OK"; OkBtn.TextColor3 = Color3.fromRGB(255, 255, 255); OkBtn.Font = Enum.Font.GothamBold; OkBtn.TextSize = 12; Utils.Corner(OkBtn, 4)
+    
+    table.insert(ActiveWarnings, popup)
+    popup:SetAttribute("IsOpen", true)
+    
+    local function UpdateWarningPositions()
+        for i, p in ipairs(ActiveWarnings) do
+            local targetY = -(10 + (i * 120))
+            if p:GetAttribute("IsOpen") then
+                TweenService:Create(p, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, 20, 1, targetY)}):Play()
+            end
+        end
+    end
+    
+    local targetY = -(10 + (#ActiveWarnings * 120))
+    popup.Position = UDim2.new(0, -320, 1, targetY)
+    TweenService:Create(popup, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, 20, 1, targetY)}):Play()
+    
+    OkBtn.MouseButton1Click:Connect(function()
+        if not popup:GetAttribute("IsOpen") then return end
+        popup:SetAttribute("IsOpen", false)
+        local currentY = popup.Position.Y.Offset
+        local t = TweenService:Create(popup, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, -320, 1, currentY)})
+        t:Play()
+        for i, v in ipairs(ActiveWarnings) do if v == popup then table.remove(ActiveWarnings, i) break end end
+        UpdateWarningPositions()
+        t.Completed:Connect(function() popup:Destroy() end)
+    end)
+end
+
+Players.PlayerAdded:Connect(function(player) if LOSER_DICT[player.UserId] then ShowLoserWarning(player.Name) end end)
+local existingLosers = 0
+for _, p in ipairs(Players:GetPlayers()) do 
+    if p ~= LocalPlayer and LOSER_DICT[p.UserId] then 
+        existingLosers = existingLosers + 1
+        task.delay(existingLosers * 0.2, function() ShowLoserWarning(p.Name) end) 
+    end 
 end
 
 -- // COMMAND BARS
@@ -1456,8 +1583,9 @@ ParseCommand = function(inputStr)
     local F = UI_Feedback or UI.MainCmdFeedback
 
     if cmd == "cmd" then UI.CmdPopup.Visible = true; F.TextColor3 = Color3.fromRGB(0, 200, 80); F.Text = "Opened command list" return end
-    if cmd == "bindlist" then Utils.RefreshBindsList(); TweenService:Create(UI.BindsFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, -250, 0, 0)}):Play(); F.TextColor3 = Color3.fromRGB(0, 220, 80); F.Text = "Opened bind list" return end
-    if cmd == "getlist" or cmd == "items" then TweenService:Create(UI.ItemsFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, -250, 0, 0)}):Play(); F.TextColor3 = Color3.fromRGB(0, 220, 80); F.Text = "Opened items list" return end
+    if cmd == "loserlist" then UI.LoserFrame.Visible = true; TweenService:Create(UI.LoserFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, -250, 0, 0)}):Play(); F.TextColor3 = Color3.fromRGB(0, 220, 80); F.Text = "Opened loser list" return end
+    if cmd == "bindlist" then UI.BindsFrame.Visible = true; Utils.RefreshBindsList(); TweenService:Create(UI.BindsFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, -250, 0, 0)}):Play(); F.TextColor3 = Color3.fromRGB(0, 220, 80); F.Text = "Opened bind list" return end
+    if cmd == "getlist" or cmd == "items" then UI.ItemsFrame.Visible = true; TweenService:Create(UI.ItemsFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, -250, 0, 0)}):Play(); F.TextColor3 = Color3.fromRGB(0, 220, 80); F.Text = "Opened items list" return end
     if cmd == "rejoin" then F.TextColor3 = Color3.fromRGB(255, 180, 0); F.Text = "Rejoining server..."; task.wait(0.5); pcall(function() game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end) return end
     
     if cmd == "bind" then

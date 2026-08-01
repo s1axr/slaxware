@@ -43,11 +43,12 @@ getgenv().Aiming = getgenv().Settings
 getgenv().FLY_SPEED = 50
 getgenv().TPWALK_SPEED = 15
 
--- // AIMLOCK PREDICTION SETTINGS (ALL ABOUT PREDICTION)
+-- // AIMLOCK PREDICTION SETTINGS (ALL ABOUT PREDICTION & DAMPENING)
 local PREDICTION_ENABLED = true
 local PREDICTION_TIME = 0.125
 local BAD_PING_PRED_ENABLED = false
 local PING_PRED_MULTIPLIER = 1.0
+local VERTICAL_DAMPENING = 0.50 -- 0.00 = Ignore Y velocity completely (full lock), 1.00 = Full Y lead prediction
 
 -- // MULTI-BODY PART SELECTION DICTIONARY & SEQUENTIAL SWITCHER
 local SELECTED_HITPARTS = {
@@ -103,7 +104,7 @@ local function SaveConfig()
         FOVSize = Settings.FOV, TrailTime = TrailTime, BulletTransparency = BulletTransparency,
         BulletR = BulletColour.Keypoints[1].Value.R, BulletG = BulletColour.Keypoints[1].Value.G, BulletB = BulletColour.Keypoints[1].Value.B,
         PredEnabled = PREDICTION_ENABLED, PredTime = PREDICTION_TIME,
-        BadPingPredEnabled = BAD_PING_PRED_ENABLED, PingPredMult = PING_PRED_MULTIPLIER, SelectedHitparts = SELECTED_HITPARTS
+        BadPingPredEnabled = BAD_PING_PRED_ENABLED, PingPredMult = PING_PRED_MULTIPLIER, VertDampening = VERTICAL_DAMPENING, SelectedHitparts = SELECTED_HITPARTS
     }
     for tName, key in pairs(Binds) do config.Binds[tName] = key.Name end
     pcall(function() writefile(CONFIG_FILE, HttpService:JSONEncode(config)) end)
@@ -130,6 +131,7 @@ local function LoadConfig()
             if data.PredTime then PREDICTION_TIME = tonumber(data.PredTime) or PREDICTION_TIME end
             if data.BadPingPredEnabled ~= nil then BAD_PING_PRED_ENABLED = data.BadPingPredEnabled end
             if data.PingPredMult then PING_PRED_MULTIPLIER = tonumber(data.PingPredMult) or PING_PRED_MULTIPLIER end
+            if data.VertDampening then VERTICAL_DAMPENING = tonumber(data.VertDampening) or VERTICAL_DAMPENING end
             if type(data.SelectedHitparts) == "table" then
                 for k, v in pairs(data.SelectedHitparts) do SELECTED_HITPARTS[k] = v end
             end
@@ -153,7 +155,7 @@ local function GetNetworkPing()
     return 60 -- Fallback default ping (ms)
 end
 
--- Calculation Engine for Aimlock Prediction (Handles Bad Ping Latency Offset)
+-- Calculation Engine for Aimlock Prediction (Handles Bad Ping Latency Offset & Vertical Dampening)
 local function GetPredictedPosition(targetPart)
     if not targetPart then return CFrame.new() end
     if not PREDICTION_ENABLED then
@@ -166,7 +168,10 @@ local function GetPredictedPosition(targetPart)
         predOffset = (currentPing / 1000) * PING_PRED_MULTIPLIER
     end
     
-    return targetPart.CFrame + (targetPart.Velocity * predOffset)
+    local vel = targetPart.Velocity
+    local dampenedVel = Vector3.new(vel.X, vel.Y * VERTICAL_DAMPENING, vel.Z)
+    
+    return targetPart.CFrame + (dampenedVel * predOffset)
 end
 
 local function IsVisible(targetPart, character)
@@ -465,34 +470,101 @@ end
 
 function Utils.CreateSlider(parent, layoutOrder, labelText, minVal, maxVal, currentVal, decimals, callback)
     local container = Instance.new("Frame", parent)
-    container.Size = UDim2.new(1,-20,0,32); container.BackgroundTransparency = 1; container.LayoutOrder = layoutOrder
+    container.Size = UDim2.new(1,-20,0,36); container.BackgroundTransparency = 1; container.LayoutOrder = layoutOrder
     local label = Instance.new("TextLabel", container)
     label.Size = UDim2.new(1,0,0,14); label.BackgroundTransparency = 1
     local function getTxt(v) if decimals > 0 then return string.format("%s: %."..decimals.."f", labelText, v) else return labelText..": "..math.floor(v) end end
     label.Text = getTxt(currentVal); label.TextColor3 = Color3.fromRGB(180,180,180); label.TextSize = 11; label.Font = Enum.Font.Gotham; label.TextXAlignment = Enum.TextXAlignment.Left
-    local bar = Instance.new("Frame", container)
-    bar.Size = UDim2.new(1,0,0,4); bar.Position = UDim2.new(0,0,0,20); bar.BackgroundColor3 = Color3.fromRGB(50,50,50); bar.BorderSizePixel = 0
-    Utils.Corner(bar, 2)
-    local knob = Instance.new("Frame", bar)
-    knob.Size = UDim2.new(0,12,0,12)
-    local pct = (currentVal - minVal) / (maxVal - minVal)
-    knob.Position = UDim2.new(pct, -6, 0.5, -6); knob.BackgroundColor3 = Color3.fromRGB(0,180,255); knob.BorderSizePixel = 0
-    Utils.Corner(knob, 6)
+    
+    -- Enlarged click & push hit box for effortless grabbing
+    local clickArea = Instance.new("TextButton", container)
+    clickArea.Size = UDim2.new(1,0,0,22); clickArea.Position = UDim2.new(0,0,0,14)
+    clickArea.BackgroundTransparency = 1; clickArea.Text = ""; clickArea.AutoButtonColor = false
+    
+    local bar = Instance.new("Frame", clickArea)
+    bar.Size = UDim2.new(1,0,0,6); bar.Position = UDim2.new(0,0,0.5,-3); bar.BackgroundColor3 = Color3.fromRGB(50,50,50); bar.BorderSizePixel = 0
+    Utils.Corner(bar, 3)
+    
+    local fill = Instance.new("Frame", bar)
+    local pct = math.clamp((currentVal - minVal) / (maxVal - minVal), 0, 1)
+    fill.Size = UDim2.new(pct, 0, 1, 0); fill.BackgroundColor3 = Color3.fromRGB(0,180,255); fill.BorderSizePixel = 0
+    Utils.Corner(fill, 3)
+    
+    local knob = Instance.new("Frame", clickArea)
+    knob.Size = UDim2.new(0,16,0,16)
+    knob.Position = UDim2.new(pct, -8, 0.5, -8); knob.BackgroundColor3 = Color3.fromRGB(240,240,240); knob.BorderSizePixel = 0
+    Utils.Corner(knob, 8); Utils.Stroke(knob, Color3.fromRGB(0,180,255), 2)
     
     local active = false
-    bar.InputBegan:Connect(function(input) if input.UserInputType.Name:find("MouseButton1") or input.UserInputType.Name:find("Touch") then active = true end end)
-    UserInputService.InputEnded:Connect(function(input) if input.UserInputType.Name:find("MouseButton1") or input.UserInputType.Name:find("Touch") then active = false end end)
-    UserInputService.InputChanged:Connect(function(input)
-        if active and (input.UserInputType.Name:find("MouseMovement") or input.UserInputType.Name:find("Touch")) then
-            local r = math.clamp((UserInputService:GetMouseLocation().X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
-            knob.Position = UDim2.new(r, -6, 0.5, -6)
-            local val = minVal + (r * (maxVal - minVal)); if decimals == 0 then val = math.floor(val) end
-            label.Text = getTxt(val); callback(val)
+    local function UpdateVal(inputX)
+        local r = math.clamp((inputX - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+        knob.Position = UDim2.new(r, -8, 0.5, -8)
+        fill.Size = UDim2.new(r, 0, 1, 0)
+        local val = minVal + (r * (maxVal - minVal))
+        if decimals == 0 then val = math.floor(val + 0.5) end
+        label.Text = getTxt(val)
+        callback(val)
+    end
+    
+    clickArea.InputBegan:Connect(function(input)
+        if input.UserInputType.Name:find("MouseButton1") or input.UserInputType.Name:find("Touch") then
+            active = true
+            knob.BackgroundColor3 = Color3.fromRGB(0,220,255)
+            UpdateVal(input.Position.X)
         end
     end)
+    
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType.Name:find("MouseButton1") or input.UserInputType.Name:find("Touch") then
+            if active then
+                active = false
+                knob.BackgroundColor3 = Color3.fromRGB(240,240,240)
+            end
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if active and (input.UserInputType.Name:find("MouseMovement") or input.UserInputType.Name:find("Touch")) then
+            UpdateVal(UserInputService:GetMouseLocation().X)
+        end
+    end)
+    
     return function(newVal)
-        label.Text = getTxt(newVal); local r = (newVal - minVal) / (maxVal - minVal)
-        knob.Position = UDim2.new(r, -6, 0.5, -6)
+        label.Text = getTxt(newVal)
+        local r = math.clamp((newVal - minVal) / (maxVal - minVal), 0, 1)
+        knob.Position = UDim2.new(r, -8, 0.5, -8)
+        fill.Size = UDim2.new(r, 0, 1, 0)
+    end
+end
+
+-- Central Keybind Assignment Engine (With Duplicate Conflict Detector)
+local function AssignKeybind(toggleName, keyCode)
+    if not toggleName or not keyCode then return end
+    
+    local existingToggle = nil
+    for tName, bKey in pairs(Binds) do
+        if bKey == keyCode and tName ~= toggleName then
+            existingToggle = tName
+            break
+        end
+    end
+    
+    if existingToggle then
+        Binds[existingToggle] = nil
+        Notify("Bind Conflict", "⚠️ [" .. keyCode.Name .. "] was bound to " .. existingToggle:upper() .. "! Overwriting.")
+    else
+        Notify("Keybind Set", "🔑 Bound " .. toggleName:upper() .. " to " .. keyCode.Name)
+    end
+    
+    Binds[toggleName] = keyCode
+    SaveConfig()
+    Utils.RefreshBindsList()
+    
+    if UI.KeylockBtn then
+        UI.KeylockBtn.Text = Binds["keylock"] and ("Keylock Bind: " .. Binds["keylock"].Name) or "Keylock Bind: None"
+    end
+    if UI.BodypartBindBtn then
+        UI.BodypartBindBtn.Text = Binds["bodypart"] and ("Bind For Bodypart: " .. Binds["bodypart"].Name) or "Bind For Bodypart: None"
     end
 end
 
@@ -974,8 +1046,8 @@ do
     
     local AContent = Instance.new("ScrollingFrame", UI.AimlockSettingsFrame)
     AContent.Size = UDim2.new(1,0,1,-30); AContent.Position = UDim2.new(0,0,0,30); AContent.BackgroundTransparency = 1; AContent.BorderSizePixel = 0; AContent.ScrollBarThickness = 4
-    Utils.Pad(AContent, 8,8,10,0)
-    local layout = Instance.new("UIListLayout", AContent); layout.SortOrder = Enum.SortOrder.LayoutOrder; layout.Padding = UDim.new(0,6)
+    Utils.Pad(AContent, 8,8,0,0)
+    local layout = Instance.new("UIListLayout", AContent); layout.SortOrder = Enum.SortOrder.LayoutOrder; layout.Padding = UDim.new(0,6); layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() AContent.CanvasSize = UDim2.new(0,0,0,layout.AbsoluteContentSize.Y + 16) end)
     
     local alO = 0; local function an() alO = alO + 1 return alO end
@@ -1027,6 +1099,12 @@ do
     -- 5. Bad Ping Multiplier Slider
     local UpdatePingSlider = Utils.CreateSlider(AContent, an(), "Ping Pred Multiplier", 0.50, 3.00, PING_PRED_MULTIPLIER, 2, function(v)
         PING_PRED_MULTIPLIER = v
+        SaveConfig()
+    end)
+
+    -- 5.2. Vertical Velocity Prediction Dampening Slider
+    local UpdateVertSlider = Utils.CreateSlider(AContent, an(), "Vertical Dampening", 0.00, 1.00, VERTICAL_DAMPENING, 2, function(v)
+        VERTICAL_DAMPENING = v
         SaveConfig()
     end)
 
@@ -1096,6 +1174,7 @@ do
         PREDICTION_TIME = 0.125
         BAD_PING_PRED_ENABLED = false
         PING_PRED_MULTIPLIER = 1.0
+        VERTICAL_DAMPENING = 0.50
         
         for k in pairs(SELECTED_HITPARTS) do
             SELECTED_HITPARTS[k] = (k == "Head")
@@ -1105,6 +1184,7 @@ do
         Utils.SetBtnState(BadPingTog, BAD_PING_PRED_ENABLED, "Bad Ping Pred: ON", "Bad Ping Pred: OFF")
         UpdatePredSlider(PREDICTION_TIME)
         UpdatePingSlider(PING_PRED_MULTIPLIER)
+        UpdateVertSlider(VERTICAL_DAMPENING)
         RefreshAllBodyBtns()
         
         if Binds["bodypart"] then
@@ -1132,8 +1212,8 @@ do
     
     local IContent = Instance.new("ScrollingFrame", UI.ItemsFrame)
     IContent.Size = UDim2.new(1,0,1,-30); IContent.Position = UDim2.new(0,0,0,30); IContent.BackgroundTransparency = 1; IContent.BorderSizePixel = 0; IContent.ScrollBarThickness = 4
-    Utils.Pad(IContent, 8,8,10,10)
-    local layout = Instance.new("UIListLayout", IContent); layout.SortOrder = Enum.SortOrder.LayoutOrder; layout.Padding = UDim.new(0,6)
+    Utils.Pad(IContent, 8,8,0,0)
+    local layout = Instance.new("UIListLayout", IContent); layout.SortOrder = Enum.SortOrder.LayoutOrder; layout.Padding = UDim.new(0,6); layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() IContent.CanvasSize = UDim2.new(0,0,0,layout.AbsoluteContentSize.Y + 16) end)
     
     local sortedKeys = {}
@@ -1142,7 +1222,7 @@ do
     
     for count, itemKey in ipairs(sortedKeys) do
         local itemDef = GET_ITEMS[itemKey]
-        local row = Instance.new("Frame", IContent); row.Size = UDim2.new(1,0,0,32); row.BackgroundColor3 = Color3.fromRGB(30,30,30); row.BorderSizePixel = 0; row.LayoutOrder = count
+        local row = Instance.new("Frame", IContent); row.Size = UDim2.new(1,-20,0,32); row.BackgroundColor3 = Color3.fromRGB(30,30,30); row.BorderSizePixel = 0; row.LayoutOrder = count
         Utils.Corner(row, 4); Utils.Stroke(row, Color3.fromRGB(50,50,50))
         
         local lbl = Instance.new("TextLabel", row); lbl.Size = UDim2.new(1,-65,1,0); lbl.Position = UDim2.new(0,8,0,0); lbl.BackgroundTransparency = 1
@@ -1172,8 +1252,8 @@ do
     
     UI.BindsScroll = Instance.new("ScrollingFrame", UI.BindsFrame)
     UI.BindsScroll.Size = UDim2.new(1,0,1,-30); UI.BindsScroll.Position = UDim2.new(0,0,0,30); UI.BindsScroll.BackgroundTransparency = 1; UI.BindsScroll.BorderSizePixel = 0; UI.BindsScroll.ScrollBarThickness = 4
-    Utils.Pad(UI.BindsScroll, 8,8,10,10)
-    local layout = Instance.new("UIListLayout", UI.BindsScroll); layout.SortOrder = Enum.SortOrder.LayoutOrder; layout.Padding = UDim.new(0,6)
+    Utils.Pad(UI.BindsScroll, 8,8,0,0)
+    local layout = Instance.new("UIListLayout", UI.BindsScroll); layout.SortOrder = Enum.SortOrder.LayoutOrder; layout.Padding = UDim.new(0,6); layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() UI.BindsScroll.CanvasSize = UDim2.new(0,0,0,layout.AbsoluteContentSize.Y + 16) end)
 end
 
@@ -1182,12 +1262,12 @@ function Utils.RefreshBindsList()
     local count = 0
     for name, key in pairs(Binds) do
         count = count + 1
-        local row = Instance.new("Frame", UI.BindsScroll); row.Size = UDim2.new(1,0,0,28); row.BackgroundColor3 = Color3.fromRGB(30,30,30); row.BorderSizePixel = 0; row.LayoutOrder = count
+        local row = Instance.new("Frame", UI.BindsScroll); row.Size = UDim2.new(1,-20,0,28); row.BackgroundColor3 = Color3.fromRGB(30,30,30); row.BorderSizePixel = 0; row.LayoutOrder = count
         Utils.Corner(row, 4); Utils.Stroke(row, Color3.fromRGB(50,50,50))
         local lbl = Instance.new("TextLabel", row); lbl.Size = UDim2.new(1,-12,1,0); lbl.Position = UDim2.new(0,6,0,0); lbl.BackgroundTransparency = 1; lbl.Text = name:upper() .. "  →  " .. key.Name:upper(); lbl.TextColor3 = Color3.fromRGB(220,220,220); lbl.TextSize = 11; lbl.Font = Enum.Font.GothamSemibold; lbl.TextXAlignment = Enum.TextXAlignment.Left
     end
     if count == 0 then
-        local row = Instance.new("Frame", UI.BindsScroll); row.Size = UDim2.new(1,0,0,28); row.BackgroundTransparency = 1
+        local row = Instance.new("Frame", UI.BindsScroll); row.Size = UDim2.new(1,-20,0,28); row.BackgroundTransparency = 1
         local lbl = Instance.new("TextLabel", row); lbl.Size = UDim2.new(1,0,1,0); lbl.BackgroundTransparency = 1; lbl.Text = "No active binds"; lbl.TextColor3 = Color3.fromRGB(120,120,120); lbl.TextSize = 11; lbl.Font = Enum.Font.Gotham
     end
 end
@@ -1206,8 +1286,8 @@ do
     
     local BContent = Instance.new("ScrollingFrame", UI.BulletFrame)
     BContent.Size = UDim2.new(1,0,1,-30); BContent.Position = UDim2.new(0,0,0,30); BContent.BackgroundTransparency = 1; BContent.BorderSizePixel = 0; BContent.ScrollBarThickness = 4
-    Utils.Pad(BContent, 8,8,10,0)
-    local layout = Instance.new("UIListLayout", BContent); layout.SortOrder = Enum.SortOrder.LayoutOrder; layout.Padding = UDim.new(0,6)
+    Utils.Pad(BContent, 8,8,0,0)
+    local layout = Instance.new("UIListLayout", BContent); layout.SortOrder = Enum.SortOrder.LayoutOrder; layout.Padding = UDim.new(0,6); layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() BContent.CanvasSize = UDim2.new(0,0,0,layout.AbsoluteContentSize.Y + 16) end)
     
     local blO = 0; local function bn() blO = blO + 1 return blO end
@@ -1885,11 +1965,9 @@ ParseCommand = function(inputStr)
         if not kEnum then F.TextColor3 = Color3.fromRGB(255,80,80); F.Text = "Invalid key: "..keyStr return end
         
         local cleanKeyName = kEnum:gsub("Enum%.KeyCode%.", "")
-        Binds[toggleName] = Enum.KeyCode[cleanKeyName]; SaveConfig(); Utils.RefreshBindsList()
-        if toggleName == "keylock" then UI.KeylockBtn.Text = "Keylock Bind: " .. cleanKeyName end
-        if toggleName == "bodypart" or toggleName == "hitpart" then UI.BodypartBindBtn.Text = "Bind For Bodypart: " .. cleanKeyName end
+        AssignKeybind(toggleName, Enum.KeyCode[cleanKeyName])
         
-        F.TextColor3 = Color3.fromRGB(0,200,80); F.Text = "Bound "..toggleName.." to "..cleanKeyName; Notify("Bind", "🔑 " .. toggleName.." -> "..cleanKeyName) 
+        F.TextColor3 = Color3.fromRGB(0,200,80); F.Text = "Bound "..toggleName.." to "..cleanKeyName 
         return
     end
     
@@ -2084,16 +2162,14 @@ UserInputService.InputBegan:Connect(function(input, gp)
     if UI.isBindingKeylock and input.UserInputType == Enum.UserInputType.Keyboard then
         UI.isBindingKeylock = false
         if input.KeyCode.Name ~= "Unknown" and input.KeyCode.Name ~= "Escape" then
-            Binds["keylock"] = input.KeyCode; SaveConfig(); Utils.RefreshBindsList()
-            UI.KeylockBtn.Text = "Keylock Bind: " .. input.KeyCode.Name; Notify("Keylock", "Bound to " .. input.KeyCode.Name)
+            AssignKeybind("keylock", input.KeyCode)
         else UI.KeylockBtn.Text = "Keylock Bind: None" end
         return
     end
     if UI.isBindingBodypart and input.UserInputType == Enum.UserInputType.Keyboard then
         UI.isBindingBodypart = false
         if input.KeyCode.Name ~= "Unknown" and input.KeyCode.Name ~= "Escape" then
-            Binds["bodypart"] = input.KeyCode; SaveConfig(); Utils.RefreshBindsList()
-            UI.BodypartBindBtn.Text = "Bind For Bodypart: " .. input.KeyCode.Name; Notify("Bodypart Bind", "Bound to " .. input.KeyCode.Name)
+            AssignKeybind("bodypart", input.KeyCode)
         else UI.BodypartBindBtn.Text = "Bind For Bodypart: None" end
         return
     end

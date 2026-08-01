@@ -19,6 +19,7 @@ local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local ContextActionService = game:GetService("ContextActionService")
 local HttpService = game:GetService("HttpService")
+local StatsService = game:GetService("Stats")
 
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
@@ -42,6 +43,44 @@ getgenv().Aiming = getgenv().Settings
 getgenv().FLY_SPEED = 50
 getgenv().TPWALK_SPEED = 15
 
+-- // AIMLOCK PREDICTION SETTINGS (ALL ABOUT PREDICTION)
+local PREDICTION_ENABLED = true
+local PREDICTION_TIME = 0.125
+local BAD_PING_PRED_ENABLED = false
+local PING_PRED_MULTIPLIER = 1.0
+
+-- // MULTI-BODY PART SELECTION DICTIONARY & SEQUENTIAL SWITCHER
+local SELECTED_HITPARTS = {
+    ["Head"] = true,
+    ["Torso"] = false,
+    ["HumanoidRootPart"] = false,
+    ["LeftArm"] = false,
+    ["RightArm"] = false,
+    ["LeftLeg"] = false,
+    ["RightLeg"] = false
+}
+
+local BODYPART_KEYS_ORDER = { "Head", "Torso", "HumanoidRootPart", "LeftArm", "RightArm", "LeftLeg", "RightLeg" }
+local BODYPART_DISPLAY_NAMES = {
+    ["Head"] = "Head",
+    ["Torso"] = "Torso",
+    ["HumanoidRootPart"] = "Root / Pelvis",
+    ["LeftArm"] = "Left Arm",
+    ["RightArm"] = "Right Arm",
+    ["LeftLeg"] = "Left Leg",
+    ["RightLeg"] = "Right Leg"
+}
+
+local partMappings = {
+    ["Head"] = {"Head"},
+    ["Torso"] = {"Torso", "UpperTorso", "Chest"},
+    ["HumanoidRootPart"] = {"HumanoidRootPart", "LowerTorso"},
+    ["LeftArm"] = {"Left Arm", "LeftUpperArm", "LeftHand", "LeftLowerArm"},
+    ["RightArm"] = {"Right Arm", "RightUpperArm", "RightHand", "RightLowerArm"},
+    ["LeftLeg"] = {"Left Leg", "LeftUpperLeg", "LeftFoot", "LeftLowerLeg"},
+    ["RightLeg"] = {"Right Leg", "RightUpperLeg", "RightFoot", "RightLowerLeg"}
+}
+
 local Camera = workspace.CurrentCamera
 local Binds = {}
 
@@ -62,7 +101,9 @@ local function SaveConfig()
     local config = {
         Binds = {}, FlySpeed = FLY_SPEED, TPWalkSpeed = TPWALK_SPEED,
         FOVSize = Settings.FOV, TrailTime = TrailTime, BulletTransparency = BulletTransparency,
-        BulletR = BulletColour.Keypoints[1].Value.R, BulletG = BulletColour.Keypoints[1].Value.G, BulletB = BulletColour.Keypoints[1].Value.B
+        BulletR = BulletColour.Keypoints[1].Value.R, BulletG = BulletColour.Keypoints[1].Value.G, BulletB = BulletColour.Keypoints[1].Value.B,
+        PredEnabled = PREDICTION_ENABLED, PredTime = PREDICTION_TIME,
+        BadPingPredEnabled = BAD_PING_PRED_ENABLED, PingPredMult = PING_PRED_MULTIPLIER, SelectedHitparts = SELECTED_HITPARTS
     }
     for tName, key in pairs(Binds) do config.Binds[tName] = key.Name end
     pcall(function() writefile(CONFIG_FILE, HttpService:JSONEncode(config)) end)
@@ -85,10 +126,103 @@ local function LoadConfig()
             if data.BulletR and data.BulletG and data.BulletB then
                 BulletColour = ColorSequence.new(Color3.new(data.BulletR, data.BulletG, data.BulletB))
             end
+            if data.PredEnabled ~= nil then PREDICTION_ENABLED = data.PredEnabled end
+            if data.PredTime then PREDICTION_TIME = tonumber(data.PredTime) or PREDICTION_TIME end
+            if data.BadPingPredEnabled ~= nil then BAD_PING_PRED_ENABLED = data.BadPingPredEnabled end
+            if data.PingPredMult then PING_PRED_MULTIPLIER = tonumber(data.PingPredMult) or PING_PRED_MULTIPLIER end
+            if type(data.SelectedHitparts) == "table" then
+                for k, v in pairs(data.SelectedHitparts) do SELECTED_HITPARTS[k] = v end
+            end
         end
     end)
 end
 LoadConfig()
+
+local function Notify(title, text)
+    pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", { Title = title, Text = text, Duration = 3 }) end)
+end
+
+-- Helper to resolve network ping in milliseconds
+local function GetNetworkPing()
+    local ok, ping = pcall(function()
+        return StatsService.Network.ServerStatsItem["Data Ping"]:GetValue()
+    end)
+    if ok and type(ping) == "number" and ping > 0 then
+        return ping
+    end
+    return 60 -- Fallback default ping (ms)
+end
+
+-- Calculation Engine for Aimlock Prediction (Handles Bad Ping Latency Offset)
+local function GetPredictedPosition(targetPart)
+    if not targetPart then return CFrame.new() end
+    if not PREDICTION_ENABLED then
+        return targetPart.CFrame
+    end
+    
+    local predOffset = PREDICTION_TIME
+    if BAD_PING_PRED_ENABLED then
+        local currentPing = GetNetworkPing() -- Real-time server ping (ms)
+        predOffset = (currentPing / 1000) * PING_PRED_MULTIPLIER
+    end
+    
+    return targetPart.CFrame + (targetPart.Velocity * predOffset)
+end
+
+local function IsVisible(targetPart, character)
+    if not Settings.WallCheck then return true end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {LocalPlayer.Character, character}
+    params.IgnoreWater = true
+    local startPos = Camera.CFrame.Position
+    local result = workspace:Raycast(startPos, targetPart.Position - startPos, params)
+    return result == nil
+end
+
+-- Dynamic Hitpart Switcher (Multi-Body Part Selection Support)
+local function GetTargetHitpart(character)
+    if not character then return nil end
+    local mouseLoc = UserInputService:GetMouseLocation()
+    local bestPart = nil
+    local shortestDist = math.huge
+    
+    for key, isSelected in pairs(SELECTED_HITPARTS) do
+        if isSelected and partMappings[key] then
+            for _, pName in ipairs(partMappings[key]) do
+                local part = character:FindFirstChild(pName)
+                if part and part:IsA("BasePart") then
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                    if onScreen then
+                        local dist = (Vector2.new(screenPos.X, screenPos.Y) - mouseLoc).Magnitude
+                        if dist < shortestDist and IsVisible(part, character) then
+                            shortestDist = dist
+                            bestPart = part
+                        end
+                    elseif not bestPart then
+                        bestPart = part
+                    end
+                end
+            end
+        end
+    end
+    
+    if not bestPart then
+        bestPart = character:FindFirstChild("Head") or character:FindFirstChild(Settings.Hitpart) or character:FindFirstChildWhichIsA("BasePart")
+    end
+    return bestPart
+end
+
+-- Helper to resolve string to KeyCode
+local function ResolveKeyCode(str)
+    if not str then return nil end
+    for _, enum in ipairs(Enum.KeyCode:GetEnumItems()) do
+        if enum.Name:lower() == str:lower() then
+            return "Enum.KeyCode." .. enum.Name
+        end
+    end
+    return nil
+end
 
 -- // SILENT AIM, AIMLOCK & SPECTATOR SETTINGS
 local KEYLOCK_ACTIVE = false
@@ -124,17 +258,6 @@ RunService.Heartbeat:Connect(function()
     Circle.Position = UserInputService:GetMouseLocation()
 end)
 
-local function IsVisible(targetPart, character)
-    if not Settings.WallCheck then return true end
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {LocalPlayer.Character, character}
-    params.IgnoreWater = true
-    local startPos = Camera.CFrame.Position
-    local result = workspace:Raycast(startPos, targetPart.Position - startPos, params)
-    return result == nil
-end
-
 -- Sensitive Cursor Player Detection Engine
 local function FindPlayerClosestToMouse(maxDistancePixels)
     maxDistancePixels = maxDistancePixels or 400
@@ -146,22 +269,14 @@ local function FindPlayerClosestToMouse(maxDistancePixels)
         if p ~= LocalPlayer and p.Character then
             local hum = p.Character:FindFirstChildOfClass("Humanoid")
             if hum and hum.Health > 0 and not (Settings.TeamCheck and p.TeamColor == LocalPlayer.TeamColor) then
-                local candidateParts = {
-                    p.Character:FindFirstChild(Settings.Hitpart),
-                    p.Character:FindFirstChild("Head"),
-                    p.Character:FindFirstChild("HumanoidRootPart"),
-                    p.Character:FindFirstChild("Torso"),
-                    p.Character:FindFirstChild("UpperTorso")
-                }
-                for _, part in ipairs(candidateParts) do
-                    if part then
-                        local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
-                        if onScreen then
-                            local dist = (Vector2.new(screenPos.X, screenPos.Y) - mouseLoc).Magnitude
-                            if dist < shortestDist and IsVisible(part, p.Character) then
-                                shortestDist = dist
-                                bestPlayer = p
-                            end
+                local targetPart = GetTargetHitpart(p.Character)
+                if targetPart then
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                    if onScreen then
+                        local dist = (Vector2.new(screenPos.X, screenPos.Y) - mouseLoc).Magnitude
+                        if dist < shortestDist and IsVisible(targetPart, p.Character) then
+                            shortestDist = dist
+                            bestPlayer = p
                         end
                     end
                 end
@@ -174,7 +289,7 @@ end
 local function GetClosestPlayerToCursor()
     if KEYLOCK_ACTIVE and NAME_AIMLOCK_TARGET then
         local t = NAME_AIMLOCK_TARGET
-        if t and t.Character and t.Character:FindFirstChild(Settings.Hitpart) then
+        if t and t.Character then
             local hum = t.Character:FindFirstChildOfClass("Humanoid")
             if hum and hum.Health > 0 then return t end
         end
@@ -185,50 +300,65 @@ local function GetClosestPlayerToCursor()
     return FindPlayerClosestToMouse(Settings.FOV)
 end
 
--- // HOOKS
+-- // HOOKS (DYNAMIC PREDICTION & MULTI-PART TARGETING)
 local OldIndex, OldNewIndex, OldNamecall
 OldIndex = hookmetamethod(game, "__index", newcclosure(function(self, index)
-    if self == Mouse and tostring(index) == "Hit" and (Settings.Enabled or KEYLOCK_ACTIVE) then
+    if not checkcaller() and self == Mouse and tostring(index) == "Hit" and (Settings.Enabled or KEYLOCK_ACTIVE) then
         local t = GetClosestPlayerToCursor()
-        if t and t.Character and t.Character:FindFirstChild(Settings.Hitpart) then
-            local hit = t.Character[Settings.Hitpart]
-            return hit.CFrame + (hit.Velocity * 0.125)
+        if t and t.Character then
+            local hit = GetTargetHitpart(t.Character)
+            if hit then
+                return GetPredictedPosition(hit)
+            end
         end
     end
     return OldIndex(self, index)
 end))
+
 OldNewIndex = hookmetamethod(game, "__newindex", newcclosure(function(self, index, val)
-    if not checkcaller() then
-        local name = tostring(self)
+    if not checkcaller() and typeof(self) == "Instance" then
+        local name = self.Name
         if (name == "HumanoidRootPart" or name == "Torso") and (index == "CFrame" or index == "Velocity" or index == "AssemblyLinearVelocity") then
             return
         end
     end
     return OldNewIndex(self, index, val)
 end))
+
 OldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
     local method = getnamecallmethod()
-    local args = {...}
     if not checkcaller() then
         local mName = tostring(method)
         if mName == "FireServer" then
-            local rName = tostring(self)
-            if rName == "Input" and (args[1] == "bv" or args[1] == "hb" or args[1] == "ws") then return coroutine.yield()
-            elseif rName == "WalkSpeed" or rName == "JumpPower" or rName == "HipHeight" then return nil end
+            local rName = typeof(self) == "Instance" and self.Name or ""
+            local args = {...}
+            if rName == "Input" and (args[1] == "bv" or args[1] == "hb" or args[1] == "ws") then
+                return nil
+            elseif rName == "WalkSpeed" or rName == "JumpPower" or rName == "HipHeight" then
+                return nil
+            end
         elseif mName == "PivotTo" or mName == "MoveTo" or mName == "SetPrimaryPartCFrame" then
-            local name = tostring(self)
-            if name == "HumanoidRootPart" or name == "Torso" or (self:IsA("Model") and self.Name == LocalPlayer.Name) then return nil end
+            local name = typeof(self) == "Instance" and self.Name or ""
+            if name == "HumanoidRootPart" or name == "Torso" or (self:IsA("Model") and self.Name == LocalPlayer.Name) then
+                return nil
+            end
         end
     end
+
     if tostring(method) == "FindPartOnRayWithIgnoreList" and (Settings.Enabled or KEYLOCK_ACTIVE) then
         local t = GetClosestPlayerToCursor()
-        if t and t.Character and t.Character:FindFirstChild(Settings.Hitpart) then
-            local hit = t.Character[Settings.Hitpart]
-            local pred = hit.CFrame + (hit.Velocity * 0.125)
-            args[1] = Ray.new(Camera.CFrame.Position, (pred.Position - Camera.CFrame.Position).Unit * 1000)
+        if t and t.Character then
+            local hit = GetTargetHitpart(t.Character)
+            if hit then
+                local args = {...}
+                local predCFrame = GetPredictedPosition(hit)
+                args[1] = Ray.new(Camera.CFrame.Position, (predCFrame.Position - Camera.CFrame.Position).Unit * 1000)
+                return OldNamecall(self, unpack(args))
+            end
         end
     end
-    return OldNamecall(self, unpack(args))
+
+    return OldNamecall(self, ...)
 end))
 
 -- // BULLETS ENGINE
@@ -366,8 +496,29 @@ function Utils.CreateSlider(parent, layoutOrder, labelText, minVal, maxVal, curr
     end
 end
 
-local function Notify(title, text)
-    pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", { Title = title, Text = text, Duration = 3 }) end)
+-- Sequential Bodypart Switcher Trigger (Triggered by Keybind or Button)
+local function CycleNextBodypart()
+    local currentIdx = 1
+    for idx, key in ipairs(BODYPART_KEYS_ORDER) do
+        if SELECTED_HITPARTS[key] then
+            currentIdx = idx
+            break
+        end
+    end
+    
+    local nextIdx = (currentIdx % #BODYPART_KEYS_ORDER) + 1
+    local nextKey = BODYPART_KEYS_ORDER[nextIdx]
+    
+    for _, k in ipairs(BODYPART_KEYS_ORDER) do
+        SELECTED_HITPARTS[k] = (k == nextKey)
+    end
+    
+    if UI.RefreshAllBodyBtns then
+        UI.RefreshAllBodyBtns()
+    end
+    
+    SaveConfig()
+    Notify("Hitpart Switched", "🎯 Target Hitpart → " .. (BODYPART_DISPLAY_NAMES[nextKey] or nextKey))
 end
 
 -- // GET ITEMS DEFINITIONS & UNIQUE ID LOOKUP
@@ -402,14 +553,12 @@ local function normId(s)
     return tostring(s):lower():match("%d+")
 end
 
--- Verify Tawny Color for Brick (150, 85, 85)
 local function IsTawnyColor(col)
     if not col then return false end
     local r, g, b = math.floor(col.R * 255 + 0.5), math.floor(col.G * 255 + 0.5), math.floor(col.B * 255 + 0.5)
     return math.abs(r - 150) <= 25 and math.abs(g - 85) <= 25 and math.abs(b - 85) <= 25
 end
 
--- Bounded 10-step Top Item Model Resolver
 local function GetTopItemModel(obj)
     local curr = obj
     for depth = 1, 10 do
@@ -421,7 +570,6 @@ local function GetTopItemModel(obj)
     return obj
 end
 
--- Check if Object is inside a RandomSpawner Model
 local function IsInsideRandomSpawner(obj)
     local curr = obj
     for depth = 1, 10 do
@@ -436,7 +584,6 @@ local function IsInsideRandomSpawner(obj)
     return false
 end
 
--- Check if object is an active thrown projectile moving through the air
 local function IsActiveThrownProjectile(obj)
     local isMoving = false
     pcall(function()
@@ -453,14 +600,12 @@ local function IsActiveThrownProjectile(obj)
     return isMoving
 end
 
--- Strictly Safe Disambiguated Item Identification Engine
 local function IdentifyObjectItem(o)
     local ok, res = pcall(function()
         if not o or not o.Parent then return nil end
         
         local top = GetTopItemModel(o)
         
-        -- 0. Check if Top Model contains Golf Club's unique Mesh ID (441573384) or Texture ID (441573394)
         if top then
             for _, child in ipairs(top:GetDescendants()) do
                 local cc = child.ClassName
@@ -489,23 +634,18 @@ local function IdentifyObjectItem(o)
         local nameLower = o.Name:lower()
         local topNameLower = top and top.Name:lower() or ""
 
-        -- 1. UZI CHECK
         if mId == "78158211342862" or mId == "4529712484" or tId == "111628501676927" or nameLower == "uzi" or topNameLower == "uzi" then
             return "uzi"
         end
 
-        -- 2. AR15 CHECK
         if mId == "137762422011047" or nameLower == "ar15" or nameLower == "ar-15" or nameLower == "ar 15" or topNameLower == "ar15" then
             return "ar15"
         end
 
-        -- 3. GOLF CLUB CHECK
         if mId == "441573384" or tId == "441573394" or nameLower == "golfclub" or nameLower == "golf club" or nameLower == "golf" or topNameLower == "golfclub" or topNameLower == "golf club" then
             return "golf"
         end
 
-        -- 4. THROWABLE PROJECTILES FILTER (Pipebomb, Grenade, Flashbang)
-        -- Must be inside a RandomSpawner AND not actively flying/moving in the air
         if mId == "441591858" or tId == "441591885" or nameLower == "pipebomb" or nameLower == "pipe bomb" or topNameLower == "pipebomb" then
             if IsInsideRandomSpawner(o) and not IsActiveThrownProjectile(o) then return "pipebomb" end
             return nil
@@ -519,28 +659,23 @@ local function IdentifyObjectItem(o)
             return nil
         end
 
-        -- 5. Check Mesh / Texture ID registry for remaining items
         if mId and ID_TO_ITEM["mesh_" .. mId] then return ID_TO_ITEM["mesh_" .. mId] end
         if tId and ID_TO_ITEM["tex_" .. tId] then return ID_TO_ITEM["tex_" .. tId] end
         
-        -- 6. Exact name match checks for remaining items
         if nameLower == "crowbar" or topNameLower == "crowbar" then return "crowbar" end
         if nameLower == "bat" or nameLower == "baseballbat" or nameLower == "baseball bat" or topNameLower == "bat" then return "bat" end
         
-        -- Brick validation (Must be Tawny colored 150, 85, 85 AND inside RandomSpawner, NOT thrown)
         if nameLower == "brick" or topNameLower == "brick" then
             local partColor = (o:IsA("BasePart") and o.Color) or (top and top:IsA("BasePart") and top.Color)
             if IsTawnyColor(partColor) and IsInsideRandomSpawner(o) and not IsActiveThrownProjectile(o) then return "brick" end
             return nil
         end
         
-        -- Stop Sign map filter (Must be in a RandomSpawner, not static map background)
         if nameLower == "stopsign" or nameLower == "stop sign" or topNameLower == "stopsign" then
             if IsInsideRandomSpawner(o) then return "stopsign" end
             return nil
         end
         
-        -- 7. Sound ID check (ONLY for non-shared unique sound assets, excluding generic melee swing sounds)
         if c == "Sound" then
             local sId = normId(o.SoundId)
             if sId and sId ~= "169285411" and sId ~= "175024455" and sId ~= "546410481" and sId ~= "1003717827" then
@@ -548,7 +683,6 @@ local function IdentifyObjectItem(o)
             end
         end
         
-        -- 8. General name fallback match
         if GET_ITEMS[nameLower] then return nameLower end
         for k, v in pairs(GET_ITEMS) do
             if v.name:lower() == nameLower or v.name:lower() == topNameLower then return k end
@@ -559,7 +693,6 @@ local function IdentifyObjectItem(o)
     return ok and res or nil
 end
 
--- Check if Item is inside any Player's Character or Backpack (Filters out held items)
 local function IsItemHeldByPlayer(obj)
     local top = GetTopItemModel(obj)
     if not top then return true end
@@ -578,7 +711,6 @@ local function IsItemHeldByPlayer(obj)
     return isHeld
 end
 
--- Safe Crash-Proof Spawner-Only Item Search
 local function FindItemInstances(itemKey)
     local iDef = GET_ITEMS[itemKey]
     if not iDef then return {} end
@@ -604,7 +736,6 @@ local function FindItemInstances(itemKey)
     return found
 end
 
--- Classic Position-Step Teleport Engine
 local function TeleportToPosition(targetPos)
     pcall(function()
         local char = LocalPlayer.Character; if not char then return end
@@ -641,7 +772,6 @@ local function TeleportToPosition(targetPos)
     end)
 end
 
--- Main Self-Contained Item Teleport Handler (Used by both Command and GUI Buttons)
 local function GetItem(itemKey)
     local iDef = GET_ITEMS[itemKey]
     if not iDef then
@@ -717,7 +847,6 @@ local function GetItem(itemKey)
     end)
 end
 
--- Non-Recursive Safe InfStam Handler
 local function ApplyInfStam(char)
     if not char then return end
     task.spawn(function()
@@ -829,6 +958,164 @@ do
     Utils.Pad(UI.Content, 8,8,0,0)
     local layout = Instance.new("UIListLayout", UI.Content); layout.SortOrder = Enum.SortOrder.LayoutOrder; layout.Padding = UDim.new(0,6); layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() UI.Content.CanvasSize = UDim2.new(0,0,0,layout.AbsoluteContentSize.Y + 16) end)
+end
+
+-- Aimlock Settings Slide-Out GUI
+UI.AimlockSettingsFrame = Instance.new("Frame", UI.Container)
+UI.AimlockSettingsFrame.Size = UDim2.new(1,0,1,0); UI.AimlockSettingsFrame.BackgroundColor3 = Color3.fromRGB(22,22,22); UI.AimlockSettingsFrame.BorderSizePixel = 0; UI.AimlockSettingsFrame.ZIndex = 5; UI.AimlockSettingsFrame.ClipsDescendants = true; UI.AimlockSettingsFrame.Visible = true
+do
+    Utils.Corner(UI.AimlockSettingsFrame); Utils.Stroke(UI.AimlockSettingsFrame)
+    local Title = Instance.new("TextLabel", UI.AimlockSettingsFrame)
+    Title.Size = UDim2.new(1,0,0,30); Title.BackgroundColor3 = Color3.fromRGB(15,15,15); Title.Text = "  🎯 AIMLOCK SETTINGS"; Title.TextColor3 = Color3.fromRGB(0,180,255); Title.TextXAlignment = Enum.TextXAlignment.Left; Title.TextSize = 13; Title.Font = Enum.Font.GothamBold
+    local line = Instance.new("Frame", Title); line.Size = UDim2.new(1,0,0,1); line.Position = UDim2.new(0,0,1,0); line.BackgroundColor3 = Color3.fromRGB(45,45,45); line.BorderSizePixel = 0
+    local CBtn = Instance.new("TextButton", Title); CBtn.Size = UDim2.new(0,30,0,30); CBtn.Position = UDim2.new(1,-30,0,0); CBtn.BackgroundTransparency = 1; CBtn.Text = "X"; CBtn.TextColor3 = Color3.fromRGB(180,50,50); CBtn.Font = Enum.Font.GothamBold; CBtn.TextSize = 14
+    CBtn.MouseButton1Click:Connect(function() TweenService:Create(UI.AimlockSettingsFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0,0,0,0)}):Play() end)
+    task.spawn(function() while true do Title.TextColor3 = Color3.fromHSV((tick()%5)/5,1,1); task.wait() end end)
+    
+    local AContent = Instance.new("ScrollingFrame", UI.AimlockSettingsFrame)
+    AContent.Size = UDim2.new(1,0,1,-30); AContent.Position = UDim2.new(0,0,0,30); AContent.BackgroundTransparency = 1; AContent.BorderSizePixel = 0; AContent.ScrollBarThickness = 4
+    Utils.Pad(AContent, 8,8,10,0)
+    local layout = Instance.new("UIListLayout", AContent); layout.SortOrder = Enum.SortOrder.LayoutOrder; layout.Padding = UDim.new(0,6)
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() AContent.CanvasSize = UDim2.new(0,0,0,layout.AbsoluteContentSize.Y + 16) end)
+    
+    local alO = 0; local function an() alO = alO + 1 return alO end
+    
+    -- 1. Main Aimlock Prediction Toggle
+    local PredTog = Utils.CreateButton(AContent, an(), PREDICTION_ENABLED and "Prediction: ON" or "Prediction: OFF")
+    Utils.SetBtnState(PredTog, PREDICTION_ENABLED, "Prediction: ON", "Prediction: OFF")
+    PredTog.MouseButton1Click:Connect(function()
+        PREDICTION_ENABLED = not PREDICTION_ENABLED
+        Utils.SetBtnState(PredTog, PREDICTION_ENABLED, "Prediction: ON", "Prediction: OFF")
+        Notify("Prediction", PREDICTION_ENABLED and "🟢 Aimlock Prediction ON" or "🔴 Aimlock Prediction OFF")
+        SaveConfig()
+    end)
+    
+    -- 2. Bad Ping Aimlock Prediction Toggle
+    local BadPingTog = Utils.CreateButton(AContent, an(), BAD_PING_PRED_ENABLED and "Bad Ping Pred: ON" or "Bad Ping Pred: OFF")
+    Utils.SetBtnState(BadPingTog, BAD_PING_PRED_ENABLED, "Bad Ping Pred: ON", "Bad Ping Pred: OFF")
+    BadPingTog.MouseButton1Click:Connect(function()
+        BAD_PING_PRED_ENABLED = not BAD_PING_PRED_ENABLED
+        Utils.SetBtnState(BadPingTog, BAD_PING_PRED_ENABLED, "Bad Ping Pred: ON", "Bad Ping Pred: OFF")
+        Notify("Bad Ping Pred", BAD_PING_PRED_ENABLED and "📶 Bad Ping Auto-Latency Pred ON" or "🔴 Bad Ping Pred OFF")
+        SaveConfig()
+    end)
+
+    -- 3. Live Ping & Prediction Status Display
+    local StatusBox = Instance.new("Frame", AContent); StatusBox.Size = UDim2.new(1,-20,0,36); StatusBox.BackgroundColor3 = Color3.fromRGB(30,30,30); StatusBox.LayoutOrder = an()
+    Utils.Corner(StatusBox, 4); Utils.Stroke(StatusBox, Color3.fromRGB(60,60,60))
+    local PingLbl = Instance.new("TextLabel", StatusBox); PingLbl.Size = UDim2.new(1,-12,0,16); PingLbl.Position = UDim2.new(0,6,0,2); PingLbl.BackgroundTransparency = 1; PingLbl.Text = "Ping: -- ms"; PingLbl.TextColor3 = Color3.fromRGB(0,200,255); PingLbl.TextSize = 10; PingLbl.Font = Enum.Font.GothamBold; PingLbl.TextXAlignment = Enum.TextXAlignment.Left
+    local OffsetLbl = Instance.new("TextLabel", StatusBox); OffsetLbl.Size = UDim2.new(1,-12,0,14); OffsetLbl.Position = UDim2.new(0,6,0,18); OffsetLbl.BackgroundTransparency = 1; OffsetLbl.Text = "Lead Offset: 0.125s"; OffsetLbl.TextColor3 = Color3.fromRGB(180,180,180); OffsetLbl.TextSize = 10; OffsetLbl.Font = Enum.Font.Gotham; OffsetLbl.TextXAlignment = Enum.TextXAlignment.Left
+    
+    task.spawn(function()
+        while true do
+            pcall(function()
+                local ping = GetNetworkPing()
+                PingLbl.Text = string.format("Ping: %d ms", math.floor(ping))
+                local activeOffset = BAD_PING_PRED_ENABLED and ((ping / 1000) * PING_PRED_MULTIPLIER) or PREDICTION_TIME
+                OffsetLbl.Text = string.format("Lead Offset: %.3fs %s", activeOffset, BAD_PING_PRED_ENABLED and "(Auto Ping)" or "(Manual)")
+            end)
+            task.wait(0.5)
+        end
+    end)
+    
+    -- 4. Manual Prediction Time Slider
+    local UpdatePredSlider = Utils.CreateSlider(AContent, an(), "Manual Pred (s)", 0.00, 0.50, PREDICTION_TIME, 3, function(v)
+        PREDICTION_TIME = v
+        SaveConfig()
+    end)
+
+    -- 5. Bad Ping Multiplier Slider
+    local UpdatePingSlider = Utils.CreateSlider(AContent, an(), "Ping Pred Multiplier", 0.50, 3.00, PING_PRED_MULTIPLIER, 2, function(v)
+        PING_PRED_MULTIPLIER = v
+        SaveConfig()
+    end)
+
+    -- 5.5. Bind For Bodypart Button
+    local initialBodypartText = Binds["bodypart"] and ("Bind For Bodypart: " .. Binds["bodypart"].Name) or "Bind For Bodypart: None"
+    UI.BodypartBindBtn = Utils.CreateButton(AContent, an(), initialBodypartText)
+    UI.isBindingBodypart = false
+    UI.BodypartBindBtn.MouseButton1Click:Connect(function()
+        UI.isBindingBodypart = true
+        UI.BodypartBindBtn.Text = "Bind For Bodypart: [ Press Key ]"
+    end)
+
+    -- 6. Interactive Visual Human Body Diagram (Multi-Select Support)
+    local hpLbl = Instance.new("TextLabel", AContent); hpLbl.Size = UDim2.new(1,-20,0,16); hpLbl.BackgroundTransparency = 1; hpLbl.Text = "Target Body Parts (Multi-Select)"; hpLbl.TextColor3 = Color3.fromRGB(200,200,200); hpLbl.Font = Enum.Font.GothamBold; hpLbl.TextSize = 11; hpLbl.TextXAlignment = Enum.TextXAlignment.Left; hpLbl.LayoutOrder = an()
+    
+    local BodyFrame = Instance.new("Frame", AContent)
+    BodyFrame.Size = UDim2.new(1,-20,0,155); BodyFrame.BackgroundColor3 = Color3.fromRGB(30,30,30); BodyFrame.LayoutOrder = an()
+    Utils.Corner(BodyFrame, 6); Utils.Stroke(BodyFrame, Color3.fromRGB(60,60,60))
+    
+    local BodyBtns = {}
+    local function CreateBodyPartBtn(key, labelText, size, pos, cornerR)
+        local btn = Instance.new("TextButton", BodyFrame)
+        btn.Size = size; btn.Position = pos; btn.Text = labelText; btn.TextSize = 8; btn.Font = Enum.Font.GothamBold
+        Utils.Corner(btn, cornerR or 4)
+        local stroke = Instance.new("UIStroke", btn); stroke.Thickness = 1
+        
+        local function RefreshState()
+            local isSel = (SELECTED_HITPARTS[key] == true)
+            btn.BackgroundColor3 = isSel and Color3.fromRGB(0, 150, 75) or Color3.fromRGB(42, 42, 42)
+            btn.TextColor3 = isSel and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(160, 160, 160)
+            stroke.Color = isSel and Color3.fromRGB(0, 240, 120) or Color3.fromRGB(65, 65, 65)
+        end
+        RefreshState()
+        
+        btn.MouseButton1Click:Connect(function()
+            SELECTED_HITPARTS[key] = not SELECTED_HITPARTS[key]
+            RefreshState()
+            Notify("Hitpart", (SELECTED_HITPARTS[key] and "🟢 Added " or "🔴 Removed ") .. labelText)
+            SaveConfig()
+        end)
+        BodyBtns[key] = RefreshState
+        return btn
+    end
+    
+    -- Anatomical Interactive Mannequin Layout
+    CreateBodyPartBtn("Head", "HEAD", UDim2.new(0, 32, 0, 32), UDim2.new(0.5, -16, 0, 8), 16)
+    CreateBodyPartBtn("Torso", "TORSO", UDim2.new(0, 44, 0, 44), UDim2.new(0.5, -22, 0, 43), 4)
+    CreateBodyPartBtn("HumanoidRootPart", "ROOT", UDim2.new(0, 38, 0, 16), UDim2.new(0.5, -19, 0, 90), 4)
+    CreateBodyPartBtn("LeftArm", "L-ARM", UDim2.new(0, 22, 0, 52), UDim2.new(0.5, -48, 0, 43), 4)
+    CreateBodyPartBtn("RightArm", "R-ARM", UDim2.new(0, 22, 0, 52), UDim2.new(0.5, 26, 0, 43), 4)
+    CreateBodyPartBtn("LeftLeg", "L-LEG", UDim2.new(0, 18, 0, 42), UDim2.new(0.5, -20, 0, 109), 4)
+    CreateBodyPartBtn("RightLeg", "R-LEG", UDim2.new(0, 18, 0, 42), UDim2.new(0.5, 2, 0, 109), 4)
+
+    local function RefreshAllBodyBtns()
+        for _, refreshFn in pairs(BodyBtns) do refreshFn() end
+    end
+    UI.RefreshAllBodyBtns = RefreshAllBodyBtns
+
+    -- 7. Reset to Original Aimlock Settings Button
+    local ResetBtn = Utils.CreateButton(AContent, an(), "🔄 Reset Aimlock Defaults")
+    ResetBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 40)
+    local rStroke = ResetBtn:FindFirstChildOfClass("UIStroke")
+    if rStroke then rStroke.Color = Color3.fromRGB(180, 60, 60) end
+    
+    ResetBtn.MouseButton1Click:Connect(function()
+        PREDICTION_ENABLED = true
+        PREDICTION_TIME = 0.125
+        BAD_PING_PRED_ENABLED = false
+        PING_PRED_MULTIPLIER = 1.0
+        
+        for k in pairs(SELECTED_HITPARTS) do
+            SELECTED_HITPARTS[k] = (k == "Head")
+        end
+        
+        Utils.SetBtnState(PredTog, PREDICTION_ENABLED, "Prediction: ON", "Prediction: OFF")
+        Utils.SetBtnState(BadPingTog, BAD_PING_PRED_ENABLED, "Bad Ping Pred: ON", "Bad Ping Pred: OFF")
+        UpdatePredSlider(PREDICTION_TIME)
+        UpdatePingSlider(PING_PRED_MULTIPLIER)
+        RefreshAllBodyBtns()
+        
+        if Binds["bodypart"] then
+            UI.BodypartBindBtn.Text = "Bind For Bodypart: " .. Binds["bodypart"].Name
+        else
+            UI.BodypartBindBtn.Text = "Bind For Bodypart: None"
+        end
+        
+        SaveConfig()
+        Notify("Aimlock Reset", "🔄 Aimlock reset back to original defaults!")
+    end)
 end
 
 -- Items List Slide-Out GUI
@@ -1076,7 +1363,7 @@ function Utils.SetCamlockTarget(plr)
     UI.CamlockDropBtn.Text = plr and ("▼ " .. plr.Name) or "▼ Camlock Target"
 end
 
--- Main Controls Assembly (Restored Original Layout Order + Item ESP)
+-- Main Controls Assembly
 do
     local cO = 0; local function co() cO = cO + 1 return cO end
     
@@ -1111,6 +1398,12 @@ do
     UI.NameAimlockStatus.Font = Enum.Font.Gotham; UI.NameAimlockStatus.TextXAlignment = Enum.TextXAlignment.Left
     UI.AimlockDropFrame = Utils.CreateDropFrame(UI.AimlockDropBtn)
 
+    -- 3.5. Aimlock Settings Button (Placed directly under Aimlock selector)
+    UI.AimlockSettingsBtn = Utils.CreateButton(UI.Content, co(), "Aimlock Settings")
+    UI.AimlockSettingsBtn.MouseButton1Click:Connect(function()
+        TweenService:Create(UI.AimlockSettingsFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, -250, 0, 0)}):Play()
+    end)
+
     -- 4. Camlock Toggle & Search Bar
     UI.CamlockToggle = Utils.CreateButton(UI.Content, co(), "Camlock: OFF")
     UI.CamlockToggle.MouseButton1Click:Connect(function() 
@@ -1124,7 +1417,7 @@ do
     UI.ESPDropBtn = Utils.CreateTextBox(UI.Content, co(), "ESP: None ▼", "🔍 Search players...")
     UI.ESPDropFrame = Utils.CreateDropFrame(UI.ESPDropBtn)
 
-    -- 6. Item ESP Toggle (Added)
+    -- 6. Item ESP Toggle
     UI.ItemESPToggle = Utils.CreateButton(UI.Content, co(), "Item ESP: OFF")
     UI.ItemESPToggle.MouseButton1Click:Connect(function()
         SetItemESPState(not ITEM_ESP_ENABLED)
@@ -1263,7 +1556,7 @@ end)
 
 RunService.RenderStepped:Connect(function()
     if CAMLOCK_ENABLED and CAMLOCK_TARGET and CAMLOCK_TARGET.Character then
-        local p = CAMLOCK_TARGET.Character:FindFirstChild(Settings.Hitpart)
+        local p = GetTargetHitpart(CAMLOCK_TARGET.Character)
         if p then Camera.CFrame = CFrame.new(Camera.CFrame.Position, p.Position) end
     end
     if VIEW_TARGET and VIEW_TARGET.Character and VIEW_TARGET.Character:FindFirstChildOfClass("Humanoid") then
@@ -1348,17 +1641,17 @@ local function GetAutocomplete(inputText)
         end
     end
     
-    local function IsValidToggle(str) for _, t in ipairs({"aimlock","autoreset","fly","noclip","infstam","camlock","tpwalk","fovvisible","keylock","itemesp","reset"}) do if t == str then return true end end return false end
+    local function IsValidToggle(str) for _, t in ipairs({"aimlock","autoreset","fly","noclip","infstam","camlock","tpwalk","fovvisible","keylock","itemesp","bodypart","hitpart","reset"}) do if t == str then return true end end return false end
     
     local mBind = lowerInput:match("^bind%s+(%w+)%s+(%w*)$")
     if mBind then
         local key = lowerInput:match("^bind%s+(%w+)%s+"); local r = lowerInput:match("^bind%s+%w+%s+(%w*)$")
-        if r and not IsValidToggle(key) then for _, t in ipairs({"aimlock","autoreset","fly","noclip","infstam","camlock","tpwalk","fovvisible","keylock","itemesp","reset"}) do if t:sub(1,#r)==r then return "bind "..key.." "..t end end end
+        if r and not IsValidToggle(key) then for _, t in ipairs({"aimlock","autoreset","fly","noclip","infstam","camlock","tpwalk","fovvisible","keylock","itemesp","bodypart","hitpart","reset"}) do if t:sub(1,#r)==r then return "bind "..key.." "..t end end end
     end
     local mUnb = lowerInput:match("^unbind%s+(%w+)%s+(%w*)$")
     if mUnb then
         local key = lowerInput:match("^unbind%s+(%w+)%s+"); local r = lowerInput:match("^unbind%s+%w+%s+(%w*)$")
-        if r and not IsValidToggle(key) then for _, t in ipairs({"aimlock","autoreset","fly","noclip","infstam","camlock","tpwalk","fovvisible","keylock","itemesp","reset"}) do if t:sub(1,#r)==r then return "unbind "..key.." "..t end end end
+        if r and not IsValidToggle(key) then for _, t in ipairs({"unbind "..key.." "..t}) do if t:sub(1,#r)==r then return "unbind "..key.." "..t end end end
     end
     return bestMatch or ""
 end
@@ -1522,12 +1815,6 @@ local function HideSideCommandBar()
     local t = TweenService:Create(UI.SideFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = sideClosedPos})
     t:Play(); t.Completed:Connect(function() if not isSideOpen then UI.SideFrame.Visible = false end end)
 end
-local function OpenSideCommandBar()
-    UI.SideCmdBox.Text, UI.SideCmdShadow.Text, UI.SideCmdFeedback.Text = "", "", ""; if isSideOpen then UI.SideCmdBox:CaptureFocus() return end
-    isSideOpen = true; UI.SideFrame.Visible = true; if sideCloseThread then task.cancel(sideCloseThread) sideCloseThread=nil end
-    local t = TweenService:Create(UI.SideFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = sideOpenPos})
-    t:Play(); t.Completed:Connect(function() UI.SideCmdBox:CaptureFocus() end)
-end
 
 UI.CmdBarBox.FocusLost:Connect(function(e)
     if e then
@@ -1563,6 +1850,8 @@ local function FireToggle(name)
             Utils.SetAimlockTarget(nil)
             Notify("KeyLock", "🔴 Keylock OFF (No player near cursor)")
         end
+    elseif name == "bodypart" or name == "hitpart" then
+        CycleNextBodypart()
     elseif name == "itemesp" then
         SetItemESPState(not ITEM_ESP_ENABLED)
     elseif name == "autoreset" then AUTO_RESET_ENABLED = not AUTO_RESET_ENABLED; Utils.SetBtnState(UI.AutoResetToggle, AUTO_RESET_ENABLED, "AutoReset: ON", "AutoReset (10HP): OFF"); Notify("Auto Reset", AUTO_RESET_ENABLED and "🟢 Turned ON" or "🔴 Turned OFF")
@@ -1595,17 +1884,19 @@ ParseCommand = function(inputStr)
         local kEnum = ResolveKeyCode(keyStr)
         if not kEnum then F.TextColor3 = Color3.fromRGB(255,80,80); F.Text = "Invalid key: "..keyStr return end
         
-        Binds[toggleName] = Enum.KeyCode[kEnum:sub(9)]; SaveConfig(); Utils.RefreshBindsList()
-        if toggleName == "keylock" then UI.KeylockBtn.Text = "Keylock Bind: " .. kEnum:sub(9) end
+        local cleanKeyName = kEnum:gsub("Enum%.KeyCode%.", "")
+        Binds[toggleName] = Enum.KeyCode[cleanKeyName]; SaveConfig(); Utils.RefreshBindsList()
+        if toggleName == "keylock" then UI.KeylockBtn.Text = "Keylock Bind: " .. cleanKeyName end
+        if toggleName == "bodypart" or toggleName == "hitpart" then UI.BodypartBindBtn.Text = "Bind For Bodypart: " .. cleanKeyName end
         
-        F.TextColor3 = Color3.fromRGB(0,200,80); F.Text = "Bound "..toggleName.." to "..kEnum:sub(9); Notify("Bind", "🔑 " .. toggleName.." -> "..kEnum:sub(9)) 
+        F.TextColor3 = Color3.fromRGB(0,200,80); F.Text = "Bound "..toggleName.." to "..cleanKeyName; Notify("Bind", "🔑 " .. toggleName.." -> "..cleanKeyName) 
         return
     end
     
     if cmd == "unbind" then
         if pts[2] and pts[2]:lower() == "all" then
             local c = 0; for k in pairs(Binds) do Binds[k] = nil; c = c + 1 end
-            SaveConfig(); Utils.RefreshBindsList(); UI.KeylockBtn.Text = "Keylock Bind: None"
+            SaveConfig(); Utils.RefreshBindsList(); UI.KeylockBtn.Text = "Keylock Bind: None"; UI.BodypartBindBtn.Text = "Bind For Bodypart: None"
             F.TextColor3 = Color3.fromRGB(255,180,0); F.Text = "Unbound all ("..c..") binds"; Notify("Unbind All", "🔴 Cleared " .. c .. " bind(s)")
             return
         end
@@ -1621,6 +1912,7 @@ ParseCommand = function(inputStr)
         if Binds[toggleName] then
             Binds[toggleName] = nil; SaveConfig(); Utils.RefreshBindsList()
             if toggleName == "keylock" then UI.KeylockBtn.Text = "Keylock Bind: None" end
+            if toggleName == "bodypart" or toggleName == "hitpart" then UI.BodypartBindBtn.Text = "Bind For Bodypart: None" end
             F.TextColor3 = Color3.fromRGB(255,180,0); F.Text = "Unbound "..toggleName; Notify("Unbound", "🔴 " .. toggleName .. " removed")
         else
             F.TextColor3 = Color3.fromRGB(160,160,160); F.Text = toggleName .. " had no active bind"
@@ -1795,6 +2087,14 @@ UserInputService.InputBegan:Connect(function(input, gp)
             Binds["keylock"] = input.KeyCode; SaveConfig(); Utils.RefreshBindsList()
             UI.KeylockBtn.Text = "Keylock Bind: " .. input.KeyCode.Name; Notify("Keylock", "Bound to " .. input.KeyCode.Name)
         else UI.KeylockBtn.Text = "Keylock Bind: None" end
+        return
+    end
+    if UI.isBindingBodypart and input.UserInputType == Enum.UserInputType.Keyboard then
+        UI.isBindingBodypart = false
+        if input.KeyCode.Name ~= "Unknown" and input.KeyCode.Name ~= "Escape" then
+            Binds["bodypart"] = input.KeyCode; SaveConfig(); Utils.RefreshBindsList()
+            UI.BodypartBindBtn.Text = "Bind For Bodypart: " .. input.KeyCode.Name; Notify("Bodypart Bind", "Bound to " .. input.KeyCode.Name)
+        else UI.BodypartBindBtn.Text = "Bind For Bodypart: None" end
         return
     end
     if input.KeyCode == Enum.KeyCode.Tab then
